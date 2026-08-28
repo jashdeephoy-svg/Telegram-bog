@@ -13,7 +13,7 @@ ADMINS = [6289653515, 7393427319]
 PUBLIC_CHANNELS = ["@jyoex", "@comchater", "@foraremy"]
 BACKUP_CHANNEL_LINK = "https://t.me/+YwwAed_oQwU5YWY1"
 ANNOUNCEMENT_CHANNEL_LINK = "https://t.me/+ObinPrPz_ktkODJl"
-WORK_WITH_US_LINK = "https://t.me/Jyoex"
+WORK_BOT_LINK = "https://t.me/talkwithhimbot"
 
 PER_REFERRAL_REWARD = 2
 DB_FILE = "bot_data.json"
@@ -45,7 +45,7 @@ def load_data():
                 return json.load(f)
         except Exception:
             pass
-    return {"users": {}}
+    return {"users": {}, "banned": []}
 
 def save_data(data):
     try:
@@ -55,6 +55,10 @@ def save_data(data):
         print(f"Error saving data: {e}")
 
 data = load_data()
+if "banned" not in data:
+    data["banned"] = []
+    save_data(data)
+
 user_states = {}
 
 def get_user(user_id):
@@ -94,7 +98,6 @@ def get_force_join_keyboard():
 
 def get_bottom_menu_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    
     btn_announcement = types.KeyboardButton("Join Announcement Channel")
     btn_helpline = types.KeyboardButton("24x7 consumer helpline")
     btn_work = types.KeyboardButton("Work with us")
@@ -108,6 +111,18 @@ def get_bottom_menu_keyboard():
     markup.row(btn_work, btn_mail)
     markup.row(btn_balance, btn_referrals)
     markup.row(btn_help)
+    return markup
+
+def get_admin_action_keyboard(target_id):
+    markup = types.InlineKeyboardMarkup()
+    is_ban = target_id in data["banned"]
+    ban_text = "🟢 Unban" if is_ban else "⛔ Ban"
+    
+    btn_ban = types.InlineKeyboardButton(ban_text, callback_data=f"adm_ban_{target_id}")
+    btn_notify = types.InlineKeyboardButton("❗ Notify", callback_data=f"adm_not_{target_id}")
+    btn_ask = types.InlineKeyboardButton("❓ Ask / Reply", callback_data=f"adm_rep_{target_id}")
+    
+    markup.row(btn_ban, btn_notify, btn_ask)
     return markup
 
 WELCOME_TEXT = (
@@ -127,6 +142,10 @@ WELCOME_TEXT = (
 @bot.message_handler(commands=['start'])
 def start_handler(message):
     user_id = message.from_user.id
+    if user_id in data["banned"]:
+        bot.send_message(user_id, "⛔ You are banned from using this bot.")
+        return
+
     user = get_user(user_id)
     user_states.pop(user_id, None)
 
@@ -184,12 +203,64 @@ def handle_callbacks(call):
             )
         else:
             bot.answer_callback_query(call.id, "❌ Please join all channels first!", show_alert=True)
+        return
+
+    if user_id in ADMINS:
+        if call.data.startswith("adm_ban_"):
+            target_id = int(call.data.split("adm_ban_")[1])
+            if target_id in data["banned"]:
+                data["banned"].remove(target_id)
+                bot.answer_callback_query(call.id, "User Unbanned ✅")
+            else:
+                data["banned"].append(target_id)
+                bot.answer_callback_query(call.id, "User Banned ⛔")
+            save_data(data)
+            try:
+                bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=get_admin_action_keyboard(target_id))
+            except Exception:
+                pass
+
+        elif call.data.startswith("adm_rep_"):
+            target_id = int(call.data.split("adm_rep_")[1])
+            user_states[user_id] = {"mode": "ADMIN_REPLYING", "target": target_id}
+            bot.send_message(user_id, f"✍️ Type the **Reply / Details** for User `{target_id}`:")
+
+        elif call.data.startswith("adm_not_"):
+            target_id = int(call.data.split("adm_not_")[1])
+            user_states[user_id] = {"mode": "ADMIN_NOTIFYING", "target": target_id}
+            bot.send_message(user_id, f"📢 Type the **Notification Alert** to send to User `{target_id}`:")
 
 @bot.message_handler(func=lambda msg: True, content_types=['text'])
 def handle_bottom_buttons(message):
     user_id = message.from_user.id
-    user = get_user(user_id)
     text = message.text
+
+    if user_id in data.get("banned", []):
+        bot.send_message(user_id, "⛔ You are banned from using this bot.")
+        return
+
+    if user_id in ADMINS and user_id in user_states:
+        state_data = user_states[user_id]
+        if isinstance(state_data, dict):
+            target = state_data["target"]
+            mode = state_data["mode"]
+            user_states.pop(user_id, None)
+
+            if mode == "ADMIN_REPLYING":
+                try:
+                    bot.send_message(target, f"{text}")
+                    bot.send_message(user_id, f"✔ Message successfully sent to the user (`{target}`)!")
+                except Exception as e:
+                    bot.send_message(user_id, f"❌ Failed to send: {e}")
+                return
+
+            elif mode == "ADMIN_NOTIFYING":
+                try:
+                    bot.send_message(target, f"🔔 **Notification Alert:**\n\n{text}", parse_mode="Markdown")
+                    bot.send_message(user_id, f"✔ Alert successfully sent to user (`{target}`)!")
+                except Exception as e:
+                    bot.send_message(user_id, f"❌ Failed to send: {e}")
+                return
 
     if not is_subscribed(user_id):
         bot.send_message(
@@ -201,13 +272,11 @@ def handle_bottom_buttons(message):
 
     state = user_states.get(user_id)
 
-    # Cancel button handler
     if text in ["🚫 Cancel", "❌ Cancel"]:
         user_states.pop(user_id, None)
         bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard())
         return
 
-    # Helpline Support State
     if state == "AWAITING_SUPPORT_MESSAGE":
         msg_length = len(text)
         word_count = len(text.split())
@@ -220,16 +289,22 @@ def handle_bottom_buttons(message):
             return
 
         user_states.pop(user_id, None)
+        user_info = get_user(user_id)
+        
+        report_card = (
+            f"**24x7 Consumer Support** 📩\n"
+            f"User: {message.from_user.first_name}\n"
+            f"UserCode / ID: `{user_id}`\n"
+            f"Username: @{message.from_user.username or 'None'}\n"
+            f"Referrals: `{user_info.get('total_referrals', 0)}`\n"
+            f"Balance: `{user_info.get('balance', 0)}`\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"📩 **Message:**\n{text}"
+        )
+
         for admin in ADMINS:
             try:
-                bot.send_message(
-                    admin,
-                    f"📩 **New 24x7 Consumer Report:**\n"
-                    f"👤 User: @{message.from_user.username or 'No Username'}\n"
-                    f"🆔 User ID: `{user_id}`\n\n"
-                    f"📝 Message:\n{text}",
-                    parse_mode="Markdown"
-                )
+                bot.send_message(admin, report_card, reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
             except Exception:
                 pass
 
@@ -240,19 +315,22 @@ def handle_bottom_buttons(message):
         )
         return
 
-    # Mail Order State
     if state == "AWAITING_MAIL_DETAILS":
         user_states.pop(user_id, None)
+        user_info = get_user(user_id)
+        
+        order_card = (
+            f"📩 **New Mail Creation Order:**\n"
+            f"User: {message.from_user.first_name}\n"
+            f"User ID: `{user_id}`\n"
+            f"Username: @{message.from_user.username or 'None'}\n"
+            f"Balance: `{user_info.get('balance', 0)}`\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"📝 **Details:**\n{text}"
+        )
         for admin in ADMINS:
             try:
-                bot.send_message(
-                    admin,
-                    f"📩 **New Mail Creation Order:**\n"
-                    f"👤 User: @{message.from_user.username or 'No Username'}\n"
-                    f"🆔 User ID: `{user_id}`\n\n"
-                    f"📝 Details:\n{text}",
-                    parse_mode="Markdown"
-                )
+                bot.send_message(admin, order_card, reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
             except Exception:
                 pass
 
@@ -276,16 +354,13 @@ def handle_bottom_buttons(message):
             '"If you have any issues, questions, or suggestions regarding Gmail Creator Bot, '
             'please let us know through a text message. Our support team will do its best to assist you."'
         )
-        bot.send_message(
-            user_id,
-            helpline_prompt,
-            reply_markup=cancel_kb
-        )
+        bot.send_message(user_id, helpline_prompt, reply_markup=cancel_kb)
 
     elif text == "Work with us":
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🤝 Partner With Us", url=WORK_WITH_US_LINK))
-        bot.send_message(user_id, "💼 To partner, resell or place bulk orders, contact us below:", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton("💬 @talkwithhimbot", url=WORK_BOT_LINK))
+        work_text = "DM us on  We’ll explain the work in detail, and you can earn good money with us. @talkwithhimbot"
+        bot.send_message(user_id, work_text, reply_markup=markup)
 
     elif text == "Mail create":
         user_states[user_id] = "AWAITING_MAIL_DETAILS"
@@ -299,16 +374,18 @@ def handle_bottom_buttons(message):
         )
 
     elif text == "💰 My Balance":
+        user_info = get_user(user_id)
         bot.send_message(
             user_id,
             f"💰 **Your Account Balance:**\n\n"
             f"🆔 User ID: `{user_id}`\n"
-            f"💵 Current Balance: `{user.get('balance', 0)} Credits`\n"
-            f"👥 Total Referrals: `{user.get('total_referrals', 0)}`",
+            f"💵 Current Balance: `{user_info.get('balance', 0)} Credits`\n"
+            f"👥 Total Referrals: `{user_info.get('total_referrals', 0)}`",
             parse_mode="Markdown"
         )
 
     elif text == "👥 Referrals":
+        user_info = get_user(user_id)
         try:
             bot_username = bot.get_me().username
             ref_link = f"https://t.me/{bot_username}?start={user_id}"
@@ -317,7 +394,7 @@ def handle_bottom_buttons(message):
                 f"👥 **Refer & Earn Program:**\n\n"
                 f"Share your referral link with friends and earn **+{PER_REFERRAL_REWARD} Credits** for every joined user!\n\n"
                 f"🔗 **Your Link:**\n`{ref_link}`\n\n"
-                f"📊 Total Referrals: `{user.get('total_referrals', 0)}`",
+                f"📊 Total Referrals: `{user_info.get('total_referrals', 0)}`",
                 parse_mode="Markdown"
             )
         except Exception:
