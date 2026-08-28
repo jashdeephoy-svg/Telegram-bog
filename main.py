@@ -6,414 +6,304 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 from telebot import types
 
-# ---------------- CONFIGURATION ----------------
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8141174859:AAGOzJQrQAxyNU49D2NQd1tL3bstorSyAJA")
+# ----------------- CONFIGURATION -----------------
+BOT_TOKEN = "8141174859:AAGOzJQrQAxyNU49D2NQd1tL3bstorSyAJA"
 ADMINS = [6289653515, 7393427319]
+CHANNELS = ["@foraremy", "@comchater", "@Jyoex"]
 
-QR_IMAGE_URL = "https://via.placeholder.com/400x400.png?text=Scan+QR+to+Pay"
-ANNOUNCEMENT_LINK = "https://t.me/+ObinPrPz_ktkODJl"
-# ------------------------------------------------
+# आपकी QR इमेज की Telegram File ID
+QR_IMAGE_URL = "AgACAgUAAxkBAAEuGY5qkTYwvExkrLrJSIRYuk242MblQAACVxNrG4QQiVSTN65L1CiLrAEAAwIAA20AAz0E"
+ANNOUNCEMENT_LINK = "https://t.me/+Ob81sV9D5vsyMjhl"
 
-bot = telebot.TeleBot(BOT_TOKEN)
+PER_REFERRAL_CREDITS = 2
+SUBMISSION_COOLDOWN = 300  # 5 मिनट (300 सेकंड)
+DB_FILE = "bot_data.json"
+# --------------------------------------------------
 
-# Render 24/7 Keep-Alive Web Server
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
+
+# Web Server for Render 24/7 Keep-Alive
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Bot is Running 24/7!")
+        self.wfile.write(b"Bot is online 24/7")
 
-def run_web_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    def log_message(self, format, *args):
+        return
+
+def run_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     server.serve_forever()
 
-# UTF-8 Data Storage
-DATA_FILE = "bot_data.json"
+threading.Thread(target=run_server, daemon=True).start()
 
+# Data Handling
 def load_data():
-    if os.path.exists(DATA_FILE):
+    if os.path.exists(DB_FILE):
         try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
+            with open(DB_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception:
-            return {"users": {}}
+            pass
     return {"users": {}}
 
 def save_data(data):
     try:
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
+        with open(DB_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
     except Exception as e:
-        print(f"Data save error: {e}")
+        print(f"Error saving data: {e}")
 
-db = load_data()
+data = load_data()
+user_states = {}
 
-def get_user_data(uid):
-    s_uid = str(uid)
-    if s_uid not in db["users"]:
-        db["users"][s_uid] = {
-            "referrals": 0,
+def get_user(user_id):
+    str_id = str(user_id)
+    if str_id not in data["users"]:
+        data["users"][str_id] = {
             "credits": 0,
             "referred_by": None,
-            "state": None,
-            "lock_time": 0
+            "referral_rewarded": False,
+            "is_paid": False,
+            "reports_submitted": 0,
+            "last_submission": 0
         }
-        save_data(db)
-    return db["users"][s_uid]
+        save_data(data)
+    return data["users"][str_id]
 
-def notify_admins(text, reply_markup=None, photo_id=None):
-    for admin_id in ADMINS:
+def is_subscribed(user_id):
+    for ch in CHANNELS:
         try:
-            if photo_id:
-                bot.send_photo(admin_id, photo_id, caption=text, reply_markup=reply_markup, parse_mode="HTML")
-            else:
-                bot.send_message(admin_id, text, reply_markup=reply_markup, parse_mode="HTML")
-        except Exception as e:
-            print(f"Failed to alert admin {admin_id}: {e}")
-
-PUBLIC_CHANNELS = ["@Jyoex", "@foraremy", "@comchater"]
-
-def is_user_member(chat_id, user_id):
-    try:
-        member = bot.get_chat_member(chat_id, user_id)
-        if member.status in ['creator', 'administrator', 'member']:
-            return True
-        return False
-    except Exception:
-        return True
-
-def check_all_channels(user_id):
-    for ch in PUBLIC_CHANNELS:
-        if not is_user_member(ch, user_id):
+            member = bot.get_chat_member(ch, user_id)
+            if member.status in ['left', 'kicked']:
+                return False
+        except Exception:
             return False
     return True
 
-def get_force_join_markup():
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("JYOEX", url="https://t.me/Jyoex"),
-        types.InlineKeyboardButton("SELL HUB", url="https://t.me/foraremy"),
-        types.InlineKeyboardButton("Comchater", url="https://t.me/comchater"),
-        types.InlineKeyboardButton("Market place", url="https://t.me/+_SvgfCFJeMdiMjNl"),
-        types.InlineKeyboardButton("backup", url="https://t.me/+lZWeY9LOneU0ZDk1"),
-        types.InlineKeyboardButton("✅ Check Joined", callback_data="check_joined")
-    )
+# Force Join Buttons Layout
+def get_join_keyboard():
+    markup = types.InlineKeyboardMarkup()
+    btn1 = types.InlineKeyboardButton("📢 Join Channel 1 (@foraremy)", url="https://t.me/foraremy")
+    btn2 = types.InlineKeyboardButton("📢 Join Channel 2 (@comchater)", url="https://t.me/comchater")
+    btn3 = types.InlineKeyboardButton("📢 Join Channel 3 (@Jyoex)", url="https://t.me/Jyoex")
+    verify_btn = types.InlineKeyboardButton("✅ Check Joined (सत्यापित करें)", callback_data="check_joined")
+    
+    markup.row(btn1)
+    markup.row(btn2)
+    markup.row(btn3)
+    markup.row(verify_btn)
     return markup
 
-def get_main_menu():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row(types.KeyboardButton("Join Announcement Channel"))
-    markup.row(types.KeyboardButton("Consumer helpline 📞"))
-    markup.row(types.KeyboardButton("Work with us"), types.KeyboardButton("Mail create"))
+# Clean Main Menu Inline Layout
+def get_main_inline_keyboard():
+    markup = types.InlineKeyboardMarkup()
+    btn_report = types.InlineKeyboardButton("📝 Submit Report", callback_data="btn_report")
+    btn_profile = types.InlineKeyboardButton("👤 Status / Profile", callback_data="btn_profile")
+    btn_help = types.InlineKeyboardButton("📞 Help & Support", callback_data="btn_support")
+    btn_refer = types.InlineKeyboardButton("🔗 Refer & Earn", callback_data="btn_refer")
+    btn_vip = types.InlineKeyboardButton("💎 VIP Access", callback_data="btn_buy")
+    
+    markup.row(btn_report)
+    markup.row(btn_profile, btn_help)
+    markup.row(btn_refer, btn_vip)
     return markup
 
-WELCOME_TEXT = (
-    "🚀 <b>WELCOME TO THE GMAIL PORTAL</b> 🚀\n"
-    "─────────────────────────\n"
-    "⚡ <b>Looking for Premium & Fresh Gmail Accounts?</b>\n"
-    "You are at the right place! We provide high quality accounts with full trust.\n\n"
-    "💎 <b>Why Choose Us?</b>\n"
-    "━━━━━━━━━━━━━━━━━━━━━━\n"
-    "🛡️ 100% Trusted & Genuine Service\n"
-    "🚫 Zero Panel Use (No cheap bots/scripts)\n"
-    "📱 100% Created via Real Devices\n"
-    "📦 Bulk Orders Accepted\n"
-    "💰 Best Prices & Fast Support\n\n"
-    "─────────────────────────\n"
-    "👇 Please select an option from the menu below:"
-)
-
-HELP_TEXT = (
-    "If you face any issues regarding our bot or mail services, please reach out to our Customer Support. "
-    "Our moderators will review your query and reply to you as soon as possible!\n\n"
-    "📞 <b>Support Contact:</b> @Jyoex"
-)
-
-# /start Handler
 @bot.message_handler(commands=['start'])
-def send_welcome(message):
-    uid = message.from_user.id
-    user = get_user_data(uid)
-    user["state"] = None
-    save_data(db)
+def start_handler(message):
+    user_id = message.from_user.id
+    user = get_user(user_id)
 
+    # Referral Tracking
     args = message.text.split()
-    if len(args) > 1 and args[1].isdigit():
+    if len(args) > 1 and user["referred_by"] is None:
         ref_id = args[1]
-        if ref_id != str(uid) and not user.get("referred_by"):
+        if ref_id != str(user_id) and ref_id in data["users"]:
             user["referred_by"] = ref_id
-            ref_user = get_user_data(ref_id)
-            ref_user["referrals"] += 1
-            if ref_user["referrals"] % 10 == 0:
-                ref_user["credits"] += 1
-                try:
-                    bot.send_message(
-                        int(ref_id), 
-                        "🎉 <b>Congratulations!</b>\nYou referred 10 users. You got <b>1 Free Mail Credit</b>!", 
-                        parse_mode="HTML"
-                    )
-                except Exception:
-                    pass
-            save_data(db)
+            save_data(data)
 
-    if check_all_channels(uid):
-        bot.send_message(message.chat.id, WELCOME_TEXT, reply_markup=get_main_menu(), parse_mode="HTML")
-    else:
-        bot.send_message(
-            message.chat.id,
-            "⚠️ <b>Please join all our channels below to use this bot:</b>",
-            reply_markup=get_force_join_markup(),
-            parse_mode="HTML"
+    if not is_subscribed(user_id):
+        text = (
+            "⚠️ **बॉट का उपयोग करने के लिए चैनल्स जॉइन करना अनिवार्य है:**\n\n"
+            "1️⃣ @foraremy\n"
+            "2️⃣ @comchater\n"
+            "3️⃣ @Jyoex\n\n"
+            "तीनों चैनल्स जॉइन करने के बाद नीचे **Check Joined** बटन पर टैप करें।"
         )
-
-# /help Handler
-@bot.message_handler(commands=['help'])
-def send_help_cmd(message):
-    bot.send_message(message.chat.id, HELP_TEXT, parse_mode="HTML")
-
-# Admin Reply Command
-@bot.message_handler(commands=['reply'])
-def admin_reply_cmd(message):
-    if message.from_user.id not in ADMINS:
+        bot.send_message(user_id, text, reply_markup=get_join_keyboard(), parse_mode="Markdown")
         return
-    args = message.text.split(maxsplit=2)
-    if len(args) < 3:
-        bot.reply_to(message, "⚠️ Usage: `/reply <USER_ID> <MESSAGE>`", parse_mode="Markdown")
-        return
-    target_id = args[1]
-    reply_text = args[2]
-    try:
-        bot.send_message(int(target_id), f"📩 <b>Support Reply:</b>\n\n{reply_text}", parse_mode="HTML")
-        bot.send_message(
-            int(target_id),
-            "🌟 <b>Give us vouch for creating your mail!</b>\nPlease send your feedback here.",
-            parse_mode="HTML"
-        )
-        bot.reply_to(message, "✅ Reply sent successfully!")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Error sending reply: {e}")
 
-# Callback Query Handler
+    text = (
+        "🤖 **Report & Appeal Bot**\n\n"
+        "Submit your issue or request directly to admins.\n"
+        "Choose an option below:"
+    )
+    bot.send_message(user_id, text, reply_markup=get_main_inline_keyboard(), parse_mode="Markdown")
+
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
-    uid = call.from_user.id
-    user = get_user_data(uid)
+    user_id = call.from_user.id
+    user = get_user(user_id)
 
     if call.data == "check_joined":
-        if check_all_channels(uid):
-            bot.answer_callback_query(call.id, "Verification Successful!")
-            bot.send_message(call.message.chat.id, WELCOME_TEXT, reply_markup=get_main_menu(), parse_mode="HTML")
+        if is_subscribed(user_id):
+            if user.get("referred_by") and not user.get("referral_rewarded"):
+                ref_user = get_user(user["referred_by"])
+                ref_user["credits"] += PER_REFERRAL_CREDITS
+                user["referral_rewarded"] = True
+                save_data(data)
+                try:
+                    bot.send_message(int(user["referred_by"]), f"🎉 आपके रेफरल लिंक से नया मेंबर जुड़ा! +{PER_REFERRAL_CREDITS} क्रेडिट्स मिले।")
+                except Exception:
+                    pass
+
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except Exception:
+                pass
+            
+            text = (
+                "🤖 **Report & Appeal Bot**\n\n"
+                "Submit your issue or request directly to admins.\n"
+                "Choose an option below:"
+            )
+            bot.send_message(user_id, text, reply_markup=get_main_inline_keyboard(), parse_mode="Markdown")
         else:
-            bot.answer_callback_query(call.id, "❌ You have not joined all channels yet!", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ कृपया पहले सभी 3 चैनल्स जॉइन करें!", show_alert=True)
+        return
 
-    elif call.data == "start_report":
-        user["state"] = "AWAITING_REPORT"
-        save_data(db)
-        bot.answer_callback_query(call.id)
-        bot.send_message(
-            call.message.chat.id,
-            "If you have any issues, questions, or suggestions regarding Gmail Creator Bot, please let us know through a text message. Our support team will do its best to assist you."
+    if not is_subscribed(user_id):
+        bot.answer_callback_query(call.id, "⚠️ पहले सभी चैनल्स जॉइन करें!", show_alert=True)
+        return
+
+    if call.data == "btn_profile":
+        text = (
+            f"👤 **Your Status / Profile:**\n\n"
+            f"🆔 User ID: `{user_id}`\n"
+            f"💰 Credits: `{user['credits']}`\n"
+            f"📊 Submitted Reports: `{user['reports_submitted']}`\n"
+            f"👑 VIP Status: `{'Active' if user['is_paid'] else 'Inactive'}`"
         )
+        bot.send_message(user_id, text, parse_mode="Markdown")
 
-    elif call.data in ["choose_gmail", "choose_outlook"]:
-        domain = "Gmail" if call.data == "choose_gmail" else "Outlook"
-        price = "40" if domain == "Gmail" else "20"
-        user["state"] = f"AWAITING_PAYMENT_{domain.upper()}"
-        save_data(db)
-        bot.answer_callback_query(call.id)
-
-        caption = (
-            f"✅ <b>Selected:</b> {domain}\n"
-            f"<b>per mail {price} inr after payment your mail will be created</b>\n\n"
-            "<b>SEND PAYMENT SS AND WITH CLEAR SHOWING TRANSACTION ID AND NAME 😇</b>"
-        )
-        markup = None
-        if domain == "Gmail" and user.get("credits", 0) > 0:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton(f"🎁 Use Credit Point (Credits: {user['credits']})", callback_data="use_credit"))
-
+    elif call.data == "btn_refer":
         try:
-            bot.send_photo(call.message.chat.id, QR_IMAGE_URL, caption=caption, reply_markup=markup, parse_mode="HTML")
+            bot_username = bot.get_me().username
+            ref_link = f"https://t.me/{bot_username}?start={user_id}"
+            bot.send_message(
+                user_id,
+                f"🔗 **Your Referral Link:**\n`{ref_link}`\n\n🎁 Per Refer Reward: +{PER_REFERRAL_CREDITS} Credits",
+                parse_mode="Markdown"
+            )
         except Exception:
-            bot.send_message(call.message.chat.id, caption, reply_markup=markup, parse_mode="HTML")
+            bot.send_message(user_id, f"🎁 Share link with friends to earn +{PER_REFERRAL_CREDITS} Credits!")
 
-    elif call.data == "use_credit":
-        if user.get("credits", 0) > 0:
-            user["credits"] -= 1
-            user["state"] = "AWAITING_PASS"
-            save_data(db)
-            bot.answer_callback_query(call.id)
+    elif call.data == "btn_support":
+        bot.send_message(user_id, "📞 **Support Helpline:**\nContact: @Jyoex", parse_mode="Markdown")
 
-            notify_admins(
-                f"🎁 <b>Credit User Request!</b>\nUser ID: <code>{uid}</code>\nRemaining Credits: {user['credits']}\nReply with: <code>/reply {uid} &lt;details&gt;</code>",
-                types.InlineKeyboardMarkup().add(
-                    types.InlineKeyboardButton("✅ Approve Credit", callback_data=f"app_credit_{uid}")
-                )
-            )
-            bot.send_message(
-                call.message.chat.id,
-                "Your credit request has been submitted to admin!\n\n<b>GIVE HIT OR MAIL AND YOUR PASS</b>",
-                parse_mode="HTML"
-            )
-        else:
-            bot.answer_callback_query(call.id, "❌ You have 0 credits available!", show_alert=True)
-
-    elif call.data.startswith("app_credit_"):
-        target_uid = int(call.data.split("_")[2])
-        bot.answer_callback_query(call.id, "Credit Approved!")
-        bot.send_message(
-            target_uid,
-            "Your credit are reached us\nGmail in processing pls wait✋🥺"
-        )
-
-    elif call.data.startswith("pay_app_"):
-        target_uid = int(call.data.split("_")[2])
-        target_user = get_user_data(target_uid)
-        target_user["state"] = "AWAITING_PASS"
-        save_data(db)
-        bot.answer_callback_query(call.id, "Payment Approved!")
-
-        bot.send_message(
-            target_uid,
-            "Your funds have safely reached me. Mail in processing\n\n<b>GIVE HIT OR MAIL AND YOUR PASS</b>",
-            parse_mode="HTML"
-        )
-
-    elif call.data.startswith("pay_dec_"):
-        target_uid = int(call.data.split("_")[2])
-        target_user = get_user_data(target_uid)
-        target_user["state"] = None
-        save_data(db)
-        bot.answer_callback_query(call.id, "Payment Declined!")
-
-        bot.send_message(
-            target_uid,
-            "Your funds are not reached us you send invalid transaction id ss"
-        )
-
-# Message & Photo Handler
-@bot.message_handler(content_types=['text', 'photo'])
-def handle_all_messages(message):
-    uid = message.from_user.id
-    user = get_user_data(uid)
-
-    if not check_all_channels(uid):
-        bot.send_message(
-            message.chat.id, 
-            "⚠️ <b>Please join all our channels first:</b>", 
-            reply_markup=get_force_join_markup(),
-            parse_mode="HTML"
-        )
-        return
-
-    # 5 Minutes Lock Check
-    current_time = time.time()
-    if user.get("lock_time", 0) > current_time:
-        bot.send_message(message.chat.id, "Wait 5 minutes we are creating your mail with your custom pass")
-        return
-
-    state = user.get("state")
-    text = message.text if message.text else ""
-
-    # 1. Report Validation (15 to 150 words)
-    if state == "AWAITING_REPORT":
-        words = text.strip().split()
-        if len(words) < 15 or len(words) > 150:
-            bot.send_message(message.chat.id, "⚠️ type your report minimun 15 words")
-            return
-
-        user["state"] = None
-        save_data(db)
-        bot.send_message(message.chat.id, "Your report successfully accepted.\nsoon our moderator replied you")
-
-        admin_msg = (
-            f"🚨 <b>New Consumer Report:</b>\n"
-            f"👤 User ID: <code>{uid}</code>\n"
-            f"📝 Message: {text}\n\n"
-            f"👉 Reply using: <code>/reply {uid} &lt;Your message&gt;</code>"
-        )
-        notify_admins(admin_msg)
-        return
-
-    # 2. Receiving Payment Screenshot
-    if state in ["AWAITING_PAYMENT_GMAIL", "AWAITING_PAYMENT_OUTLOOK"]:
-        if message.photo:
-            photo_id = message.photo[-1].file_id
-            domain = "Gmail" if "GMAIL" in state else "Outlook"
-            user["state"] = None
-            save_data(db)
-
-            bot.send_message(
-                message.chat.id,
-                "apki payment appeal mode tak pahucha di gayi hai jab wo approved karenge tab apki mail create hogi wait some time"
-            )
-
-            admin_markup = types.InlineKeyboardMarkup()
-            admin_markup.add(
-                types.InlineKeyboardButton("✅ Approve", callback_data=f"pay_app_{uid}"),
-                types.InlineKeyboardButton("❌ Decline", callback_data=f"pay_dec_{uid}")
-            )
-            notify_admins(
-                f"💳 <b>New Payment Verification:</b>\n👤 User ID: <code>{uid}</code>\n📧 Domain: {domain}\nText: {message.caption or 'None'}",
-                reply_markup=admin_markup,
-                photo_id=photo_id
-            )
-            return
-        else:
-            bot.send_message(message.chat.id, "⚠️ Please send a clear payment screenshot photo.")
-            return
-
-    # 3. Receiving Mail and Custom Password
-    if state == "AWAITING_PASS":
-        user["state"] = None
-        user["lock_time"] = time.time() + 300
-        save_data(db)
-
-        bot.send_message(message.chat.id, "Gmail in processing pls wait✋🥺")
-
-        notify_admins(
-            f"🔑 <b>Mail & Pass Request:</b>\n"
-            f"👤 User ID: <code>{uid}</code>\n"
-            f"📝 User Provided: {text}\n\n"
-            f"👉 Deliver via: <code>/reply {uid} &lt;Account Details&gt;</code>"
-        )
-        return
-
-    # 4. Main Menu Actions
-    if text == "Join Announcement Channel":
-        bot.send_message(message.chat.id, f"📢 <b>Announcement Channel:</b>\n{ANNOUNCEMENT_LINK}", parse_mode="HTML")
-
-    elif text == "Consumer helpline 📞":
+    elif call.data == "btn_buy":
+        user_states[user_id] = "AWAITING_PAYMENT_SS"
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("24x7 consumer support", callback_data="start_report"))
-        bot.send_message(message.chat.id, "📞 <b>Customer Support Menu:</b>\nClick the button below to submit your issue:", reply_markup=markup, parse_mode="HTML")
-
-    elif text == "Work with us":
-        bot.send_message(
-            message.chat.id,
-            "DM us on @talkwithhimbot We’ll explain the work in detail, and you can earn good money with us."
+        markup.add(types.InlineKeyboardButton("❌ Cancel", callback_data="cancel_action"))
+        bot.send_photo(
+            user_id,
+            QR_IMAGE_URL,
+            caption="💳 **VIP Access Plan** (₹99)\n\n1️⃣ Scan QR & Pay\n2️⃣ Send Screenshot here to verify.",
+            reply_markup=markup,
+            parse_mode="Markdown"
         )
 
-    elif text == "Mail create":
-        markup = types.InlineKeyboardMarkup(row_width=2)
+    elif call.data == "btn_report":
+        current_time = time.time()
+        last_sub = user.get("last_submission", 0)
+        if current_time - last_sub < SUBMISSION_COOLDOWN:
+            remaining = int(SUBMISSION_COOLDOWN - (current_time - last_sub))
+            mins, secs = divmod(remaining, 60)
+            bot.answer_callback_query(call.id, f"⏳ Cooldown active! Wait {mins}m {secs}s.", show_alert=True)
+            return
+
+        user_states[user_id] = "AWAITING_REPORT"
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("❌ Cancel", callback_data="cancel_action"))
+        bot.send_message(user_id, "✍️ **Type your appeal / report:**\n(Must be 15 to 150 words)", reply_markup=markup, parse_mode="Markdown")
+
+    elif call.data == "cancel_action":
+        user_states.pop(user_id, None)
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
+        bot.send_message(user_id, "❌ Action cancelled.", reply_markup=get_main_inline_keyboard())
+
+    elif call.data.startswith("app_pay_"):
+        if user_id in ADMINS:
+            target_id = call.data.split("_pay_")[1]
+            get_user(target_id)["is_paid"] = True
+            save_data(data)
+            try:
+                bot.edit_message_caption("✅ Approved by Admin", chat_id=call.message.chat.id, message_id=call.message.message_id)
+                bot.send_message(int(target_id), f"🎉 VIP Approved!\n🔗 Channel Link: {ANNOUNCEMENT_LINK}")
+            except Exception:
+                pass
+
+    elif call.data.startswith("dec_pay_"):
+        if user_id in ADMINS:
+            target_id = call.data.split("_pay_")[1]
+            try:
+                bot.edit_message_caption("❌ Declined by Admin", chat_id=call.message.chat.id, message_id=call.message.message_id)
+                bot.send_message(int(target_id), "❌ VIP Payment Declined.")
+            except Exception:
+                pass
+
+@bot.message_handler(func=lambda msg: True, content_types=['text', 'photo'])
+def handle_inputs(message):
+    user_id = message.from_user.id
+    state = user_states.get(user_id)
+
+    if state == "AWAITING_PAYMENT_SS" and message.content_type == 'photo':
+        photo_id = message.photo[-1].file_id
+        user_states.pop(user_id, None)
+        markup = types.InlineKeyboardMarkup()
         markup.add(
-            types.InlineKeyboardButton("Gmail", callback_data="choose_gmail"),
-            types.InlineKeyboardButton("Outlook", callback_data="choose_outlook")
+            types.InlineKeyboardButton("✅ Approve", callback_data=f"app_pay_{user_id}"),
+            types.InlineKeyboardButton("❌ Decline", callback_data=f"dec_pay_{user_id}")
         )
-        bot.send_message(message.chat.id, "choose your domain to create mail", reply_markup=markup)
+        for admin in ADMINS:
+            try:
+                bot.send_photo(admin, photo_id, caption=f"🔔 New Payment SS!\nUser ID: `{user_id}`", reply_markup=markup, parse_mode="Markdown")
+            except Exception:
+                pass
+        bot.send_message(user_id, "✅ Screenshot received! Admin will verify soon.")
 
-    else:
-        bot.send_message(
-            message.chat.id,
-            "⚠️ <b>Invalid Option</b>\n\n"
-            "I couldn't understand that command. Please use the menu buttons below or type /help for assistance.\n\n"
-            "👉 Tap /start to view the Main Menu.",
-            reply_markup=get_main_menu(),
-            parse_mode="HTML"
-        )
+    elif state == "AWAITING_REPORT" and message.text:
+        words = message.text.split()
+        if len(words) < 15 or len(words) > 150:
+            bot.send_message(user_id, f"⚠️ Report must be 15 to 150 words (currently {len(words)} words).")
+            return
 
-if __name__ == '__main__':
-    threading.Thread(target=run_web_server, daemon=True).start()
-    print("Bot is successfully running 24/7...")
-    bot.infinity_polling()
+        user_states.pop(user_id, None)
+        user = get_user(user_id)
+        user["last_submission"] = time.time()
+        user["reports_submitted"] += 1
+        save_data(data)
+
+        for admin in ADMINS:
+            try:
+                bot.send_message(admin, f"📩 **New Report Submitted:**\nUser ID: `{user_id}`\n\n{message.text}", parse_mode="Markdown")
+            except Exception:
+                pass
+
+        bot.send_message(user_id, "✅ Report submitted successfully! (Next submission allowed after 5 min).", reply_markup=get_main_inline_keyboard())
+
+# Auto-restarting Polling Loop
+if __name__ == "__main__":
+    print("Bot polling started...")
+    while True:
+        try:
+            bot.infinity_polling(timeout=20, long_polling_timeout=10)
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(3)
