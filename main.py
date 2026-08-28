@@ -12,10 +12,7 @@ ADMINS = [6289653515, 7393427319]
 
 PUBLIC_CHANNELS = ["@jyoex", "@comchater", "@foraremy"]
 BACKUP_CHANNEL_LINK = "https://t.me/+YwwAed_oQwU5YWY1"
-
-# Updated Announcement Link
 ANNOUNCEMENT_CHANNEL_LINK = "https://t.me/+ObinPrPz_ktkODJl"
-CONSUMER_HELPLINE_USER = "https://t.me/Jyoex"
 WORK_WITH_US_LINK = "https://t.me/Jyoex"
 
 PER_REFERRAL_REWARD = 2
@@ -99,7 +96,7 @@ def get_bottom_menu_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     
     btn_announcement = types.KeyboardButton("Join Announcement Channel")
-    btn_helpline = types.KeyboardButton("Consumer helpline 📞")
+    btn_helpline = types.KeyboardButton("24x7 Consumer Support 📩")
     btn_work = types.KeyboardButton("Work with us")
     btn_mail = types.KeyboardButton("Mail create")
     btn_balance = types.KeyboardButton("💰 My Balance")
@@ -203,12 +200,46 @@ def handle_bottom_buttons(message):
         return
 
     state = user_states.get(user_id)
-    if state == "AWAITING_MAIL_DETAILS":
-        if text == "❌ Cancel":
-            user_states.pop(user_id, None)
-            bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard())
+
+    # Cancel button logic
+    if text in ["🚫 Cancel", "❌ Cancel"]:
+        user_states.pop(user_id, None)
+        bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard())
+        return
+
+    # Consumer Support Input (15 to 150 words)
+    if state == "AWAITING_SUPPORT_MESSAGE":
+        words = text.split()
+        if len(words) < 15 or len(words) > 150:
+            bot.send_message(
+                user_id,
+                f"⚠️ Your message must be between 15 and 150 words.\n(Currently {len(words)} words). Please try again:"
+            )
             return
 
+        user_states.pop(user_id, None)
+        for admin in ADMINS:
+            try:
+                bot.send_message(
+                    admin,
+                    f"📩 **New 24x7 Consumer Support Message:**\n"
+                    f"👤 User: @{message.from_user.username or 'No Username'}\n"
+                    f"🆔 User ID: `{user_id}`\n\n"
+                    f"📝 Message:\n{text}",
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+
+        bot.send_message(
+            user_id,
+            "Your report successfully accepted soon our moderator replied you",
+            reply_markup=get_bottom_menu_keyboard()
+        )
+        return
+
+    # Mail Order Input
+    if state == "AWAITING_MAIL_DETAILS":
         user_states.pop(user_id, None)
         for admin in ADMINS:
             try:
@@ -230,15 +261,21 @@ def handle_bottom_buttons(message):
         )
         return
 
+    # Menu Triggers
     if text == "Join Announcement Channel":
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("📢 Open Announcement Channel", url=ANNOUNCEMENT_CHANNEL_LINK))
         bot.send_message(user_id, "👇 Tap below to join our official Announcement Channel:", reply_markup=markup)
 
-    elif text == "Consumer helpline 📞":
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("💬 Contact Support", url=CONSUMER_HELPLINE_USER))
-        bot.send_message(user_id, "📞 For any queries, orders or assistance, contact support below:", reply_markup=markup)
+    elif text == "24x7 Consumer Support 📩":
+        user_states[user_id] = "AWAITING_SUPPORT_MESSAGE"
+        cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
+        support_msg = (
+            "\"If you have any issues, questions, or suggestions regarding Gmail Creator Bot, "
+            "please let us know through a text message. Our support team will do its best to assist you.\""
+        )
+        bot.send_message(user_id, support_msg, reply_markup=cancel_kb)
 
     elif text == "Work with us":
         markup = types.InlineKeyboardMarkup()
@@ -248,7 +285,7 @@ def handle_bottom_buttons(message):
     elif text == "Mail create":
         user_states[user_id] = "AWAITING_MAIL_DETAILS"
         cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        cancel_kb.add(types.KeyboardButton("❌ Cancel"))
+        cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
         bot.send_message(
             user_id,
             "✍️ **Place Mail Order:**\n\nPlease enter your requirements (Quantity, Domain/Names, etc.):",
@@ -286,7 +323,7 @@ def handle_bottom_buttons(message):
             "⚙️ **Help & Information:**\n\n"
             "• **Mail create:** Request fresh and premium Gmail accounts.\n"
             "• **Referrals:** Invite friends to earn free credits.\n"
-            "• **Consumer helpline 📞:** Contact direct admin support @Jyoex.\n\n"
+            "• **24x7 Consumer Support:** Send text reports directly to moderators.\n\n"
             "Official Updates: @comchater"
         )
         bot.send_message(user_id, help_text, parse_mode="Markdown")
