@@ -1,8 +1,10 @@
 import os
 import time
 import json
+import random
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
+import urllib.request
 import telebot
 from telebot import types
 
@@ -15,18 +17,19 @@ BACKUP_CHANNEL_LINK = "https://t.me/+YwwAed_oQwU5YWY1"
 ANNOUNCEMENT_CHANNEL_LINK = "https://t.me/+ObinPrPz_ktkODJl"
 WORK_BOT_LINK = "https://t.me/talkwithhimbot"
 
-PER_REFERRAL_REWARD = 2
+PER_REFERRAL_REWARD = 1
 DB_FILE = "bot_data.json"
 # --------------------------------------------------
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
 
+# 24/7 Web Server
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Bot is online 24/7")
+        self.wfile.write(b"Bot is alive 24/7")
 
     def log_message(self, format, *args):
         return
@@ -38,6 +41,18 @@ def run_server():
 
 threading.Thread(target=run_server, daemon=True).start()
 
+def self_ping():
+    time.sleep(10)
+    port = int(os.environ.get("PORT", 8080))
+    while True:
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=10)
+        except Exception:
+            pass
+        time.sleep(120)
+
+threading.Thread(target=self_ping, daemon=True).start()
+
 def load_data():
     default_db = {
         "users": {},
@@ -45,6 +60,7 @@ def load_data():
         "groups": [],
         "banned": [],
         "qr_file_id": None,
+        "qr_locked": True,
         "settings": {
             "maintenance": False,
             "new_user_notify": True
@@ -80,7 +96,20 @@ data = load_data()
 user_states = {}
 processing_timers = {}
 
-# Background Scheduler Thread
+# Luck Draw Ticket Configuration
+REDEEM_TICKETS = [
+    {"code": "Freezgmail1", "chance": 30, "msg": "🎉 **CONGRATS!**\nYOU GOT A FREE 2 GMAIL CREATION TICKET!"},
+    {"code": "nex&time2", "chance": 90, "msg": "😔 **SORRY NEXT TIME!**"},
+    {"code": "Tryagain3", "chance": 80, "msg": "🔄 **SORRY TRY AGAIN!**"},
+    {"code": "Badluck4", "chance": 60, "msg": "⚠️ **THIS TIME YOUR BAD LUCK!**"},
+    {"code": "Notyourluck5", "chance": 70, "msg": "⌛ **TODAY IS NOT YOUR DAY!**"},
+    {"code": "Bobmcredit6", "chance": 50, "msg": "🎉 **CONGRATS!**\nYOU GOT 5 FREE BOMBER CREDITS!"},
+    {"code": "Get7c", "chance": 60, "msg": "🎉 **CONGRATS!**\nYOU GOT 7 FREE NUMBER DETAILS TICKETS!"},
+    {"code": "Wors8tdy", "chance": 60, "msg": "🌧️ **SORRY TODAY IS YOUR WORST DAY!**"},
+    {"code": "Nott9oday", "chance": 85, "msg": "💔 **NOT YOUR DAY DEAR USER!**"},
+    {"code": "Loki5210", "chance": 79, "msg": "🍀 **OPPPS BETTER LUCK NEXT TIME!**"}
+]
+
 def auto_scheduler_loop():
     while True:
         try:
@@ -117,8 +146,8 @@ MENU_BUTTONS = [
     "Mail create",
     "💰 My Balance",
     "👥 Referrals",
-    "⚙️ Help",
     "⭐ Rating / Feedback",
+    "⚙️ Help",
     "🛠️ Admin Panel",
     "🚫 Cancel",
     "❌ Cancel"
@@ -138,7 +167,7 @@ def format_user_card(user_obj, user_id):
         f"🆔 User ID: [`{user_id}`](tg://user?id={user_id})\n"
         f"🔗 Username: {username}\n"
         f"👥 Referrals: `{user_info.get('total_referrals', 0)}`\n"
-        f"💵 Balance: `{user_info.get('balance', 0)}`"
+        f"💵 Balance: `{user_info.get('balance', 0)} Credits`"
     )
 
 def get_user(user_id, user_obj=None):
@@ -218,24 +247,35 @@ def get_bottom_menu_keyboard(user_id):
         markup.row(btn_rating, btn_help)
     return markup
 
+def get_balance_options_keyboard():
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    b1 = types.InlineKeyboardButton("📧 Redeem Free Gmail (10 Credits)", callback_data="use_cred_gmail")
+    b2 = types.InlineKeyboardButton("✉️ Redeem Free Outlook Mail (5 Credits)", callback_data="use_cred_outlook")
+    b3 = types.InlineKeyboardButton("🔍 Number Details Search (1 Credit)", callback_data="use_cred_numdet")
+    b4 = types.InlineKeyboardButton("🎟️ Buy Lucky Redeem Ticket (10 Credits)", callback_data="use_cred_ticket")
+    markup.add(b1, b2, b3, b4)
+    return markup
+
 def get_admin_panel_inline():
     markup = types.InlineKeyboardMarkup(row_width=2)
     m_state = "🔴 ON" if data["settings"].get("maintenance") else "⚪ OFF"
     n_state = "🔔 ON" if data["settings"].get("new_user_notify") else "🔕 OFF"
     s_state = "🟢 ON" if data.get("scheduler", {}).get("enabled") else "⚪ OFF"
+    qr_state = "🟢 LOCKED" if data.get("qr_locked", True) else "🔓 UNLOCKED"
     
     btn1 = types.InlineKeyboardButton("📨 Mailing / Broadcast", callback_data="adm_cmd_mail")
     btn2 = types.InlineKeyboardButton("📊 Statistics", callback_data="adm_cmd_stats")
     btn3 = types.InlineKeyboardButton(f"🛠️ Maintenance ({m_state})", callback_data="adm_cmd_toggle_maint")
     btn4 = types.InlineKeyboardButton(f"👤 New User Notify ({n_state})", callback_data="adm_cmd_toggle_notify")
-    btn5 = types.InlineKeyboardButton("👥 Manage Admins", callback_data="adm_cmd_manage_admins")
-    btn6 = types.InlineKeyboardButton("🖼️ Update QR Code", callback_data="adm_cmd_update_qr")
-    btn7 = types.InlineKeyboardButton(f"⏰ Auto Timer Msg ({s_state})", callback_data="adm_cmd_auto_timer")
+    btn5 = types.InlineKeyboardButton(f"🔒 QR Lock ({qr_state})", callback_data="adm_cmd_toggle_qrlock")
+    btn6 = types.InlineKeyboardButton("🔄 Change QR Code", callback_data="adm_cmd_update_qr")
+    btn7 = types.InlineKeyboardButton("👥 Manage Admins", callback_data="adm_cmd_manage_admins")
+    btn8 = types.InlineKeyboardButton(f"⏰ Auto Timer Msg ({s_state})", callback_data="adm_cmd_auto_timer")
     
     markup.add(btn1, btn2)
     markup.add(btn3, btn4)
     markup.add(btn5, btn6)
-    markup.add(btn7)
+    markup.add(btn7, btn8)
     return markup
 
 def get_admin_action_keyboard(target_id):
@@ -271,7 +311,6 @@ def get_rating_keyboard():
     markup.add(*stars)
     return markup
 
-# 5 Second Delayed Give Hit message with Cancel Button
 def send_delayed_give_hit(target_id):
     time.sleep(5)
     user_states[target_id] = "AWAITING_CREDENTIALS"
@@ -364,7 +403,7 @@ def handle_callbacks(call):
                 user["referral_rewarded"] = True
                 save_data(data)
                 try:
-                    bot.send_message(int(user["referred_by"]), f"🎉 New user joined via your link! +{PER_REFERRAL_REWARD} Credits added.")
+                    bot.send_message(int(user["referred_by"]), f"🎉 New user joined via your link! +{PER_REFERRAL_REWARD} Credit added.")
                 except Exception:
                     pass
 
@@ -383,6 +422,78 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, "❌ Please join all channels first!", show_alert=True)
         return
 
+    # Use Credit Points Redeem Actions
+    if call.data == "use_cred_gmail":
+        if user["balance"] < 10:
+            bot.answer_callback_query(call.id, "❌ You need at least 10 Credits!", show_alert=True)
+            return
+        user["balance"] -= 10
+        save_data(data)
+        user_states[user_id] = "AWAITING_CREDENTIALS"
+        cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
+        bot.send_message(user_id, "🎉 **10 Credits Deducted!**\n\n𝗚𝗜𝗩𝗘 𝗛𝗜𝗧 𝗢𝗥 𝗠𝗔𝗜𝗟 𝗔𝗡𝗗 𝙔𝙊𝙐𝙍 𝗣𝗔𝗦𝗦 for your free Gmail creation:", reply_markup=cancel_kb)
+        bot.answer_callback_query(call.id, "10 Credits Redeemed ✅")
+        return
+
+    elif call.data == "use_cred_outlook":
+        if user["balance"] < 5:
+            bot.answer_callback_query(call.id, "❌ You need at least 5 Credits!", show_alert=True)
+            return
+        user["balance"] -= 5
+        save_data(data)
+        for adm in data.get("admins", SUPER_ADMINS):
+            try:
+                bot.send_message(adm, f"✉️ **Outlook Mail Request:**\nUser ID: `{user_id}`\nUsername: @{call.from_user.username or 'None'}")
+            except Exception:
+                pass
+        bot.send_message(user_id, "✅ **5 Credits Deducted!** Your free Outlook Mail request has been submitted to admin.")
+        bot.answer_callback_query(call.id, "5 Credits Redeemed ✅")
+        return
+
+    elif call.data == "use_cred_numdet":
+        if user["balance"] < 1:
+            bot.answer_callback_query(call.id, "❌ You need at least 1 Credit!", show_alert=True)
+            return
+        user["balance"] -= 1
+        save_data(data)
+        user_states[user_id] = "AWAITING_SUPPORT_MESSAGE"
+        cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
+        bot.send_message(user_id, "🔍 **1 Credit Deducted!** Please send the Phone Number you want details for:", reply_markup=cancel_kb)
+        bot.answer_callback_query(call.id, "1 Credit Redeemed ✅")
+        return
+
+    elif call.data == "use_cred_ticket":
+        if user["balance"] < 10:
+            bot.answer_callback_query(call.id, "❌ 10 Credits required for Lucky Redeem Ticket!", show_alert=True)
+            return
+        user["balance"] -= 10
+        save_data(data)
+        
+        # Weighted random selection based on chance
+        weights = [t["chance"] for t in REDEEM_TICKETS]
+        selected_ticket = random.choices(REDEEM_TICKETS, weights=weights, k=1)[0]
+        
+        # Notify admins
+        for adm in data.get("admins", SUPER_ADMINS):
+            try:
+                bot.send_message(adm, f"🎟️ **User Won Lucky Ticket:**\nUser: [`{user_id}`](tg://user?id={user_id})\nTicket: `{selected_ticket['code']}`", parse_mode="Markdown")
+            except Exception:
+                pass
+
+        result_msg = (
+            f"🎟️ **LUCKY REDEEM TICKET RESULT** 🎟️\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🏷️ Ticket: `{selected_ticket['code']}`\n\n"
+            f"{selected_ticket['msg']}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💵 Remaining Balance: `{user['balance']} Credits`"
+        )
+        bot.send_message(user_id, result_msg, parse_mode="Markdown")
+        bot.answer_callback_query(call.id, "Ticket Drawn! 🎰")
+        return
+
     if call.data.startswith("rate_"):
         rating = call.data.split("_")[1]
         user_states[user_id] = {"mode": "WAITING_FEEDBACK_TEXT", "rating": rating}
@@ -399,7 +510,7 @@ def handle_callbacks(call):
         bot.send_message(user_id, "✍️ Type your reply for the admin:", reply_markup=cancel_kb)
         return
 
-    # Admin Control Handlers
+    # Admin Dashboard Handlers
     if is_admin(user_id):
         if call.data == "adm_cmd_stats":
             total_users = len(data.get("users", {}))
@@ -411,12 +522,19 @@ def handle_callbacks(call):
                 f"👥 Active Groups: `{len(data.get('groups', []))}`\n"
                 f"🚫 Banned Users: `{len(data.get('banned', []))}`\n"
                 f"⭐ Reviews Received: `{len(data.get('feedbacks', []))}`\n"
+                f"🔒 QR Status: `{'LOCKED' if data.get('qr_locked', True) else 'UNLOCKED'}`\n"
                 f"⚙️ Maintenance: `{'ON' if data['settings'].get('maintenance') else 'OFF'}`\n"
                 f"🔔 New User Notify: `{'ON' if data['settings'].get('new_user_notify') else 'OFF'}`\n"
                 f"⏰ Auto Timer Msg: `{'ON' if data.get('scheduler', {}).get('enabled') else 'OFF'}`\n"
             )
             bot.send_message(user_id, stats_text, parse_mode="Markdown")
             bot.answer_callback_query(call.id)
+
+        elif call.data == "adm_cmd_toggle_qrlock":
+            data["qr_locked"] = not data.get("qr_locked", True)
+            save_data(data)
+            bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=get_admin_panel_inline())
+            bot.answer_callback_query(call.id, f"QR is now {'LOCKED 🔒' if data['qr_locked'] else 'UNLOCKED 🔓'}")
 
         elif call.data == "adm_cmd_toggle_maint":
             data["settings"]["maintenance"] = not data["settings"].get("maintenance", False)
@@ -456,7 +574,7 @@ def handle_callbacks(call):
             user_states[user_id] = "ADMIN_SET_QR"
             cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
             cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
-            bot.send_message(user_id, "🖼️ Please send the **new QR Code Photo** right now:", reply_markup=cancel_kb)
+            bot.send_message(user_id, "🖼️ Please send the **new QR Code Photo** right now (This will update and lock your QR):", reply_markup=cancel_kb)
             bot.answer_callback_query(call.id)
 
         elif call.data.startswith("adm_app_"):
@@ -524,7 +642,7 @@ def handle_all_messages(message):
         bot.send_message(user_id, "⛔ You are banned from using this bot.")
         return
 
-    # Admin Settings Multi-step Inputs
+    # Admin Control Multi-step Handlers
     if is_admin(user_id) and user_id in user_states:
         state_data = user_states[user_id]
 
@@ -551,9 +669,10 @@ def handle_all_messages(message):
         elif state_data == "ADMIN_SET_QR":
             if message.content_type == 'photo':
                 data["qr_file_id"] = message.photo[-1].file_id
+                data["qr_locked"] = True
                 save_data(data)
                 user_states.pop(user_id, None)
-                bot.send_message(user_id, "✅ **New QR Code updated successfully!**", reply_markup=get_bottom_menu_keyboard(user_id))
+                bot.send_message(user_id, "✅ **New QR Code updated and Locked permanently!**", reply_markup=get_bottom_menu_keyboard(user_id))
             else:
                 bot.send_message(user_id, "⚠️ Please send a valid photo.")
             return
@@ -619,7 +738,7 @@ def handle_all_messages(message):
         bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard(user_id))
         return
 
-    # Feedback Handler
+    # Rating Review Submission Handler
     if user_id in user_states and isinstance(user_states[user_id], dict) and user_states[user_id].get("mode") == "WAITING_FEEDBACK_TEXT":
         rating = user_states[user_id]["rating"]
         user_states.pop(user_id, None)
@@ -739,7 +858,7 @@ def handle_all_messages(message):
         bot.send_message(user_id, "𝙂𝙢𝙖𝙞𝙡 𝙞𝙣 𝙥𝙧𝙤𝙘𝙚𝙨𝙨𝙞𝙣𝙜 𝙥𝙡𝙨 𝙬𝙖𝙞𝙩✋🥺", reply_markup=get_bottom_menu_keyboard(user_id))
         return
 
-    # 4. 20-Minutes Lock Check for Random Non-menu Messages
+    # 4. 20-Minutes Lock Check for Random Messages
     if user_id in processing_timers and not is_admin(user_id):
         if time.time() - processing_timers[user_id] < 1200:
             if text not in MENU_BUTTONS:
@@ -794,14 +913,23 @@ def handle_all_messages(message):
 
     elif text == "💰 My Balance":
         user_info = get_user(user_id, message.from_user)
-        bot.send_message(
-            user_id,
-            f"💰 **Your Account Balance:**\n\n"
-            f"🆔 User ID: [`{user_id}`](tg://user?id={user_id})\n"
-            f"💵 Current Balance: `{user_info.get('balance', 0)} Credits`\n"
-            f"👥 Total Referrals: `{user_info.get('total_referrals', 0)}`",
-            parse_mode="Markdown"
+        name = message.from_user.first_name or "User"
+        profile_link = f"[{name}](tg://user?id={user_id})"
+        username = f"@{message.from_user.username}" if message.from_user.username else "None"
+        
+        balance_card = (
+            f"👤 **USER ACCOUNT & BALANCE DETAILS**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **Name:** {profile_link}\n"
+            f"🆔 **User ID:** [`{user_id}`](tg://user?id={user_id})\n"
+            f"🔗 **Username:** {username}\n"
+            f"💵 **Current Balance:** `{user_info.get('balance', 0)} Credits`\n"
+            f"👥 **Total Referrals:** `{user_info.get('total_referrals', 0)} Users`\n"
+            f"📅 **Member Since:** `{user_info.get('joined_at', '2026')}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👇 **Use Credit Points Menu:**"
         )
+        bot.send_message(user_id, balance_card, reply_markup=get_balance_options_keyboard(), parse_mode="Markdown")
 
     elif text == "👥 Referrals":
         user_info = get_user(user_id, message.from_user)
@@ -811,7 +939,7 @@ def handle_all_messages(message):
             bot.send_message(
                 user_id,
                 f"👥 **Refer & Earn Program:**\n\n"
-                f"Share your referral link with friends and earn **+{PER_REFERRAL_REWARD} Credits** for every joined user!\n\n"
+                f"Share your referral link with friends and earn **+{PER_REFERRAL_REWARD} Credit** for every joined user!\n\n"
                 f"🔗 **Your Link:**\n`{ref_link}`\n\n"
                 f"📊 Total Referrals: `{user_info.get('total_referrals', 0)}`",
                 parse_mode="Markdown"
