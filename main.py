@@ -96,7 +96,7 @@ def get_bottom_menu_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     
     btn_announcement = types.KeyboardButton("Join Announcement Channel")
-    btn_helpline = types.KeyboardButton("24x7 Consumer Support 📩")
+    btn_helpline = types.KeyboardButton("24x7 consumer helpline")
     btn_work = types.KeyboardButton("Work with us")
     btn_mail = types.KeyboardButton("Mail create")
     btn_balance = types.KeyboardButton("💰 My Balance")
@@ -201,20 +201,22 @@ def handle_bottom_buttons(message):
 
     state = user_states.get(user_id)
 
-    # Cancel button logic
+    # Cancel button handler
     if text in ["🚫 Cancel", "❌ Cancel"]:
         user_states.pop(user_id, None)
         bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard())
         return
 
-    # Consumer Support Input (15 to 150 words)
+    # Helpline Support State
     if state == "AWAITING_SUPPORT_MESSAGE":
-        words = text.split()
-        if len(words) < 15 or len(words) > 150:
-            bot.send_message(
-                user_id,
-                f"⚠️ Your message must be between 15 and 150 words.\n(Currently {len(words)} words). Please try again:"
-            )
+        msg_length = len(text)
+        word_count = len(text.split())
+        
+        if msg_length < 15:
+            bot.send_message(user_id, f"⚠️ Message too short! Minimum 15 letters required (currently {msg_length} letters).")
+            return
+        if word_count > 150:
+            bot.send_message(user_id, f"⚠️ Message too long! Maximum 150 words allowed (currently {word_count} words).")
             return
 
         user_states.pop(user_id, None)
@@ -222,7 +224,7 @@ def handle_bottom_buttons(message):
             try:
                 bot.send_message(
                     admin,
-                    f"📩 **New 24x7 Consumer Support Message:**\n"
+                    f"📩 **New 24x7 Consumer Report:**\n"
                     f"👤 User: @{message.from_user.username or 'No Username'}\n"
                     f"🆔 User ID: `{user_id}`\n\n"
                     f"📝 Message:\n{text}",
@@ -238,7 +240,7 @@ def handle_bottom_buttons(message):
         )
         return
 
-    # Mail Order Input
+    # Mail Order State
     if state == "AWAITING_MAIL_DETAILS":
         user_states.pop(user_id, None)
         for admin in ADMINS:
@@ -261,21 +263,24 @@ def handle_bottom_buttons(message):
         )
         return
 
-    # Menu Triggers
     if text == "Join Announcement Channel":
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("📢 Open Announcement Channel", url=ANNOUNCEMENT_CHANNEL_LINK))
         bot.send_message(user_id, "👇 Tap below to join our official Announcement Channel:", reply_markup=markup)
 
-    elif text == "24x7 Consumer Support 📩":
+    elif text == "24x7 consumer helpline":
         user_states[user_id] = "AWAITING_SUPPORT_MESSAGE"
         cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
         cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
-        support_msg = (
-            "\"If you have any issues, questions, or suggestions regarding Gmail Creator Bot, "
-            "please let us know through a text message. Our support team will do its best to assist you.\""
+        helpline_prompt = (
+            '"If you have any issues, questions, or suggestions regarding Gmail Creator Bot, '
+            'please let us know through a text message. Our support team will do its best to assist you."'
         )
-        bot.send_message(user_id, support_msg, reply_markup=cancel_kb)
+        bot.send_message(
+            user_id,
+            helpline_prompt,
+            reply_markup=cancel_kb
+        )
 
     elif text == "Work with us":
         markup = types.InlineKeyboardMarkup()
@@ -323,7 +328,7 @@ def handle_bottom_buttons(message):
             "⚙️ **Help & Information:**\n\n"
             "• **Mail create:** Request fresh and premium Gmail accounts.\n"
             "• **Referrals:** Invite friends to earn free credits.\n"
-            "• **24x7 Consumer Support:** Send text reports directly to moderators.\n\n"
+            "• **24x7 consumer helpline:** Send direct report to support team.\n\n"
             "Official Updates: @comchater"
         )
         bot.send_message(user_id, help_text, parse_mode="Markdown")
