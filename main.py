@@ -205,6 +205,15 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, "❌ Please join all channels first!", show_alert=True)
         return
 
+    # User Reply to Admin Button
+    if call.data == "user_reply_to_admin":
+        user_states[user_id] = "AWAITING_SUPPORT_MESSAGE"
+        cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
+        bot.send_message(user_id, "✍️ Type your reply for the admin:", reply_markup=cancel_kb)
+        return
+
+    # Admin Control Handlers
     if user_id in ADMINS:
         if call.data.startswith("adm_ban_"):
             target_id = int(call.data.split("adm_ban_")[1])
@@ -223,12 +232,12 @@ def handle_callbacks(call):
         elif call.data.startswith("adm_rep_"):
             target_id = int(call.data.split("adm_rep_")[1])
             user_states[user_id] = {"mode": "ADMIN_REPLYING", "target": target_id}
-            bot.send_message(user_id, f"✍️ Type the **Reply / Details** for User `{target_id}`:")
+            bot.send_message(user_id, f"✍️ Type the **Reply / Details** for User `{target_id}` (User will get Reply button):")
 
         elif call.data.startswith("adm_not_"):
             target_id = int(call.data.split("adm_not_")[1])
             user_states[user_id] = {"mode": "ADMIN_NOTIFYING", "target": target_id}
-            bot.send_message(user_id, f"📢 Type the **Notification Alert** to send to User `{target_id}`:")
+            bot.send_message(user_id, f"📢 Type the **Notification Alert** for User `{target_id}` (No Reply button):")
 
 @bot.message_handler(func=lambda msg: True, content_types=['text'])
 def handle_bottom_buttons(message):
@@ -239,6 +248,7 @@ def handle_bottom_buttons(message):
         bot.send_message(user_id, "⛔ You are banned from using this bot.")
         return
 
+    # Admin Execution (Reply / Notify)
     if user_id in ADMINS and user_id in user_states:
         state_data = user_states[user_id]
         if isinstance(state_data, dict):
@@ -248,8 +258,11 @@ def handle_bottom_buttons(message):
 
             if mode == "ADMIN_REPLYING":
                 try:
-                    bot.send_message(target, f"{text}")
-                    bot.send_message(user_id, f"✔ Message successfully sent to the user (`{target}`)!")
+                    markup = types.InlineKeyboardMarkup()
+                    markup.add(types.InlineKeyboardButton("Reply to Admin", callback_data="user_reply_to_admin"))
+                    msg_body = f"💬 **Admin message #msg**\n─────────────────\n{text}"
+                    bot.send_message(target, msg_body, reply_markup=markup, parse_mode="Markdown")
+                    bot.send_message(user_id, f"✔ Message successfully sent to user (`{target}`) with Reply option!")
                 except Exception as e:
                     bot.send_message(user_id, f"❌ Failed to send: {e}")
                 return
@@ -257,7 +270,7 @@ def handle_bottom_buttons(message):
             elif mode == "ADMIN_NOTIFYING":
                 try:
                     bot.send_message(target, f"🔔 **Notification Alert:**\n\n{text}", parse_mode="Markdown")
-                    bot.send_message(user_id, f"✔ Alert successfully sent to user (`{target}`)!")
+                    bot.send_message(user_id, f"✔ Alert successfully sent to user (`{target}`) without Reply button!")
                 except Exception as e:
                     bot.send_message(user_id, f"❌ Failed to send: {e}")
                 return
