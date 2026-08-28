@@ -117,7 +117,6 @@ def get_bottom_menu_keyboard():
     markup.row(btn_help)
     return markup
 
-# Normal Admin Action Keyboard
 def get_admin_action_keyboard(target_id):
     markup = types.InlineKeyboardMarkup()
     is_ban = target_id in data["banned"]
@@ -130,7 +129,6 @@ def get_admin_action_keyboard(target_id):
     markup.row(btn_ban, btn_notify, btn_ask)
     return markup
 
-# Special Payment Order Keyboard (Approve / Reject + Ban, Notify, Ask)
 def get_payment_admin_keyboard(target_id):
     markup = types.InlineKeyboardMarkup()
     is_ban = target_id in data["banned"]
@@ -145,6 +143,14 @@ def get_payment_admin_keyboard(target_id):
     markup.row(btn_app, btn_rej)
     markup.row(btn_ban, btn_notify, btn_ask)
     return markup
+
+# 5 Seconds Delayed Message Thread
+def send_delayed_processing(target_id):
+    time.sleep(5)
+    try:
+        bot.send_message(target_id, "𝙂𝙢𝙖𝙞𝙡 𝙞𝙣 𝙥𝙧𝙤𝙘𝙚𝙨𝙨𝙞𝙣𝙜 𝙥𝙡𝙨 𝙬𝙖𝙞𝙩✋🥺")
+    except Exception:
+        pass
 
 WELCOME_TEXT = (
     "🚀 **WELCOME TO GMAIL PORTAL** 🚀\n"
@@ -238,18 +244,33 @@ def handle_callbacks(call):
         if call.data.startswith("adm_app_"):
             target_id = int(call.data.split("adm_app_")[1])
             try:
+                # 1. First Message to User
                 bot.send_message(target_id, "Your funds have safely reached me. Mail in processing")
+                # 2. Start 20 Min Timer
+                processing_timers[target_id] = time.time()
+                # 3. Send second msg after 5 seconds
+                threading.Thread(target=send_delayed_processing, args=(target_id,), daemon=True).start()
+                
                 bot.answer_callback_query(call.id, "Payment Approved ✅")
-                bot.edit_message_caption(caption=call.message.caption + "\n\n🟢 **APPROVED BY ADMIN**", chat_id=call.message.chat.id, message_id=call.message.message_id)
+                new_cap = (call.message.caption or call.message.text or "") + "\n\n🟢 **APPROVED BY ADMIN**"
+                try:
+                    bot.edit_message_caption(caption=new_cap, chat_id=call.message.chat.id, message_id=call.message.message_id)
+                except Exception:
+                    bot.edit_message_text(text=new_cap, chat_id=call.message.chat.id, message_id=call.message.message_id)
             except Exception:
                 pass
 
         elif call.data.startswith("adm_rej_"):
             target_id = int(call.data.split("adm_rej_")[1])
             try:
-                bot.send_message(target_id, "Your funds are not reached us your transaction  invalid")
+                # Reject Message to User
+                bot.send_message(target_id, "Your funds are not reached us your transaction id invalid")
                 bot.answer_callback_query(call.id, "Payment Rejected ❌")
-                bot.edit_message_caption(caption=call.message.caption + "\n\n🔴 **REJECTED BY ADMIN**", chat_id=call.message.chat.id, message_id=call.message.message_id)
+                new_cap = (call.message.caption or call.message.text or "") + "\n\n🔴 **REJECTED BY ADMIN**"
+                try:
+                    bot.edit_message_caption(caption=new_cap, chat_id=call.message.chat.id, message_id=call.message.message_id)
+                except Exception:
+                    bot.edit_message_text(text=new_cap, chat_id=call.message.chat.id, message_id=call.message.message_id)
             except Exception:
                 pass
 
@@ -282,14 +303,6 @@ def handle_all_messages(message):
         bot.send_message(user_id, "⛔ You are banned from using this bot.")
         return
 
-    # 20 Minutes Lock Handler for Processing Message
-    if user_id in processing_timers:
-        if time.time() - processing_timers[user_id] < 1200:  # 20 minutes (1200 seconds)
-            bot.send_message(user_id, "Gmail in processing pls wait🤲🥺")
-            return
-        else:
-            processing_timers.pop(user_id, None)
-
     # Admin actions
     if user_id in ADMINS and user_id in user_states:
         state_data = user_states[user_id]
@@ -317,6 +330,14 @@ def handle_all_messages(message):
                     bot.send_message(user_id, f"❌ Failed to send: {e}")
                 return
 
+    # 20 Minutes Lock Handler
+    if user_id in processing_timers and user_id not in ADMINS:
+        if time.time() - processing_timers[user_id] < 1200:
+            bot.send_message(user_id, "W8 a minute  𝙂𝙢𝙖𝙞𝙡 𝙞𝙣 𝙥𝙧𝙤𝙘𝙚𝙨𝙨𝙞𝙣𝙜 𝙥𝙡𝙨 𝙬𝙖𝙞𝙩✋🥺")
+            return
+        else:
+            processing_timers.pop(user_id, None)
+
     if not is_subscribed(user_id):
         bot.send_message(
             user_id,
@@ -332,13 +353,13 @@ def handle_all_messages(message):
         bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard())
         return
 
-    # Step 1: Mail Payment SS Received
+    # Mail Payment SS / Text Details Received from User
     if state == "AWAITING_PAYMENT_SS":
-        user_states[user_id] = "AWAITING_CREDENTIALS"
+        user_states.pop(user_id, None)
         user_info = get_user(user_id)
 
         admin_caption = (
-            f"💳 **New Payment Order Screenshot:**\n"
+            f"💳 **New Payment Order Submission:**\n"
             f"👤 User: {message.from_user.first_name}\n"
             f"🆔 User ID: `{user_id}`\n"
             f"👤 Username: @{message.from_user.username or 'None'}\n"
@@ -351,25 +372,12 @@ def handle_all_messages(message):
                 if message.content_type == 'photo':
                     bot.send_photo(admin, message.photo[-1].file_id, caption=admin_caption, reply_markup=get_payment_admin_keyboard(user_id), parse_mode="Markdown")
                 else:
-                    bot.send_message(admin, f"{admin_caption}\n\n📝 Text: {text}", reply_markup=get_payment_admin_keyboard(user_id), parse_mode="Markdown")
+                    bot.send_message(admin, f"{admin_caption}\n\n📝 Details:\n{text}", reply_markup=get_payment_admin_keyboard(user_id), parse_mode="Markdown")
             except Exception:
                 pass
 
-        bot.send_message(user_id, "GIVE HIT OR MAIL AND YOUR PASS")
-        return
-
-    # Step 2: User Gives Mail & Pass -> Activate 20 Min Cooldown
-    if state == "AWAITING_CREDENTIALS":
-        user_states.pop(user_id, None)
-        processing_timers[user_id] = time.time()  # Start 20-minute timer
-
-        for admin in ADMINS:
-            try:
-                bot.send_message(admin, f"🔐 **User Credentials Received:**\nUser ID: `{user_id}`\n\n{text}", reply_markup=get_admin_action_keyboard(user_id))
-            except Exception:
-                pass
-
-        bot.send_message(user_id, "Gmail in processing pls wait🤲🥺", reply_markup=get_bottom_menu_keyboard())
+        # User ko bina kisi text ke direct wapas bottom menu par laana
+        bot.send_message(user_id, "⏳ Request submitted. Please wait for verification.", reply_markup=get_bottom_menu_keyboard())
         return
 
     # Consumer Helpline Support State
