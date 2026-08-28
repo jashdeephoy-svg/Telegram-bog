@@ -10,11 +10,11 @@ from telebot import types
 BOT_TOKEN = "7823545024:AAG7tyrhxhtwMTu2xKe47uzhK4SQHRkdmrc"
 ADMINS = [6289653515, 7393427319]
 
-# Channels list
 PUBLIC_CHANNELS = ["@jyoex", "@comchater", "@foraremy"]
 BACKUP_CHANNEL_LINK = "https://t.me/+YwwAed_oQwU5YWY1"
 
-ANNOUNCEMENT_CHANNEL_LINK = "https://t.me/+YwwAed_oQwU5YWY1"
+# Updated Announcement Link
+ANNOUNCEMENT_CHANNEL_LINK = "https://t.me/+ObinPrPz_ktkODJl"
 CONSUMER_HELPLINE_USER = "https://t.me/Jyoex"
 WORK_WITH_US_LINK = "https://t.me/Jyoex"
 
@@ -24,7 +24,6 @@ DB_FILE = "bot_data.json"
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
 
-# Web Server for Render 24/7 Keep-Alive
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -42,7 +41,6 @@ def run_server():
 
 threading.Thread(target=run_server, daemon=True).start()
 
-# Data Handling
 def load_data():
     if os.path.exists(DB_FILE):
         try:
@@ -84,7 +82,6 @@ def is_subscribed(user_id):
             return False
     return True
 
-# 1. Clean Force Join Keyboard (Exact clean channel names)
 def get_force_join_keyboard():
     markup = types.InlineKeyboardMarkup()
     btn1 = types.InlineKeyboardButton("📢 Jyoex", url="https://t.me/jyoex")
@@ -98,7 +95,6 @@ def get_force_join_keyboard():
     markup.row(verify_btn)
     return markup
 
-# 2. Main Reply Menu Keyboard
 def get_bottom_menu_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     
@@ -106,7 +102,6 @@ def get_bottom_menu_keyboard():
     btn_helpline = types.KeyboardButton("Consumer helpline 📞")
     btn_work = types.KeyboardButton("Work with us")
     btn_mail = types.KeyboardButton("Mail create")
-    
     btn_balance = types.KeyboardButton("💰 My Balance")
     btn_referrals = types.KeyboardButton("👥 Referrals")
     btn_help = types.KeyboardButton("⚙️ Help")
@@ -118,7 +113,6 @@ def get_bottom_menu_keyboard():
     markup.row(btn_help)
     return markup
 
-# Clean English Welcome Text
 WELCOME_TEXT = (
     "🚀 **WELCOME TO GMAIL PORTAL** 🚀\n"
     "━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -139,7 +133,6 @@ def start_handler(message):
     user = get_user(user_id)
     user_states.pop(user_id, None)
 
-    # Referral Tracking
     args = message.text.split()
     if len(args) > 1 and user["referred_by"] is None:
         ref_id = args[1]
@@ -195,7 +188,6 @@ def handle_callbacks(call):
         else:
             bot.answer_callback_query(call.id, "❌ Please join all channels first!", show_alert=True)
 
-# Main Menu Actions
 @bot.message_handler(func=lambda msg: True, content_types=['text'])
 def handle_bottom_buttons(message):
     user_id = message.from_user.id
@@ -299,12 +291,9 @@ def handle_bottom_buttons(message):
         )
         bot.send_message(user_id, help_text, parse_mode="Markdown")
 
-# Auto Polling
 if __name__ == "__main__":
-    print("Clean Gmail Portal Bot running...")
     while True:
         try:
             bot.infinity_polling(timeout=20, long_polling_timeout=10)
         except Exception as e:
-            print(f"Error: {e}")
             time.sleep(3)
