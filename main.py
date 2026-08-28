@@ -10,18 +10,15 @@ from telebot import types
 BOT_TOKEN = "7823545024:AAG7tyrhxhtwMTu2xKe47uzhK4SQHRkdmrc"
 ADMINS = [6289653515, 7393427319]
 
-# फोर्स जॉइन के 3 पब्लिक चैनल्स
+# Channels list
 PUBLIC_CHANNELS = ["@jyoex", "@comchater", "@foraremy"]
-
-# 4th बैकअप चैनल लिंक
 BACKUP_CHANNEL_LINK = "https://t.me/+YwwAed_oQwU5YWY1"
 
-# लिंक्स
 ANNOUNCEMENT_CHANNEL_LINK = "https://t.me/+YwwAed_oQwU5YWY1"
 CONSUMER_HELPLINE_USER = "https://t.me/Jyoex"
 WORK_WITH_US_LINK = "https://t.me/Jyoex"
 
-PER_REFERRAL_REWARD = 2  # Per refer bonus credits / balance
+PER_REFERRAL_REWARD = 2
 DB_FILE = "bot_data.json"
 # --------------------------------------------------
 
@@ -87,21 +84,21 @@ def is_subscribed(user_id):
             return False
     return True
 
-# 1. फोर्स जॉइन इनलाइन कीबोर्ड
+# 1. Clean Force Join Keyboard (Exact clean channel names)
 def get_force_join_keyboard():
     markup = types.InlineKeyboardMarkup()
-    btn1 = types.InlineKeyboardButton("📢 Channel 1 (@jyoex)", url="https://t.me/jyoex")
-    btn2 = types.InlineKeyboardButton("📢 Channel 2 (@comchater)", url="https://t.me/comchater")
-    btn3 = types.InlineKeyboardButton("📢 Channel 3 (@foraremy)", url="https://t.me/foraremy")
-    btn4 = types.InlineKeyboardButton("🛡️ Backup Channel", url=BACKUP_CHANNEL_LINK)
-    verify_btn = types.InlineKeyboardButton("✅ Verify / Check Joined", callback_data="check_joined")
+    btn1 = types.InlineKeyboardButton("📢 Jyoex", url="https://t.me/jyoex")
+    btn2 = types.InlineKeyboardButton("📢 Comchater", url="https://t.me/comchater")
+    btn3 = types.InlineKeyboardButton("📢 Foraremy", url="https://t.me/foraremy")
+    btn4 = types.InlineKeyboardButton("🛡️ Backup", url=BACKUP_CHANNEL_LINK)
+    verify_btn = types.InlineKeyboardButton("✅ Verify", callback_data="check_joined")
     
     markup.row(btn1, btn2)
     markup.row(btn3, btn4)
     markup.row(verify_btn)
     return markup
 
-# 2. बॉट मेन्यू कीबोर्ड (Clean Layout with 3 New Buttons)
+# 2. Main Reply Menu Keyboard
 def get_bottom_menu_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     
@@ -110,7 +107,6 @@ def get_bottom_menu_keyboard():
     btn_work = types.KeyboardButton("Work with us")
     btn_mail = types.KeyboardButton("Mail create")
     
-    # 3 New Buttons
     btn_balance = types.KeyboardButton("💰 My Balance")
     btn_referrals = types.KeyboardButton("👥 Referrals")
     btn_help = types.KeyboardButton("⚙️ Help")
@@ -122,18 +118,19 @@ def get_bottom_menu_keyboard():
     markup.row(btn_help)
     return markup
 
+# Clean English Welcome Text
 WELCOME_TEXT = (
     "🚀 **WELCOME TO GMAIL PORTAL** 🚀\n"
     "━━━━━━━━━━━━━━━━━━━━━━\n"
     "⚡ **Looking for Premium & Fresh Gmail Accounts?**\n"
-    "We provide 100% genuine, real-device created accounts with full trust.\n\n"
-    "💎 **Features:**\n"
+    "We provide 100% genuine accounts created on real devices with trusted warranty.\n\n"
+    "💎 **Why Choose Us?**\n"
     "• 100% Real Device Creation\n"
     "• Zero Panel / No Cheap Bots\n"
     "• Bulk Orders Accepted\n"
-    "• Fast Delivery & Support\n"
+    "• Fast Delivery & 24/7 Support\n"
     "━━━━━━━━━━━━━━━━━━━━━━\n"
-    "⚠️ **Note:** बॉट को इस्तेमाल करने के लिए नीचे दिए गए सभी चैनल्स को जॉइन करना अनिवार्य है।"
+    "⚠️ **Note:** You must join all channels below to access this bot."
 )
 
 @bot.message_handler(commands=['start'])
@@ -161,7 +158,7 @@ def start_handler(message):
 
     bot.send_message(
         user_id,
-        "✅ **Welcome! Select an option from the menu below:**",
+        "✅ **Welcome back! Please choose an option from the menu below:**",
         reply_markup=get_bottom_menu_keyboard(),
         parse_mode="Markdown"
     )
@@ -180,7 +177,7 @@ def handle_callbacks(call):
                 user["referral_rewarded"] = True
                 save_data(data)
                 try:
-                    bot.send_message(int(user["referred_by"]), f"🎉 आपके रेफरल लिंक से नया यूज़र जुड़ा! +{PER_REFERRAL_REWARD} बैलेंस मिला।")
+                    bot.send_message(int(user["referred_by"]), f"🎉 New user joined via your link! +{PER_REFERRAL_REWARD} Credits added.")
                 except Exception:
                     pass
 
@@ -198,14 +195,13 @@ def handle_callbacks(call):
         else:
             bot.answer_callback_query(call.id, "❌ Please join all channels first!", show_alert=True)
 
-# नीचे वाले बटन्स के क्लिक हैंडलर
+# Main Menu Actions
 @bot.message_handler(func=lambda msg: True, content_types=['text'])
 def handle_bottom_buttons(message):
     user_id = message.from_user.id
     user = get_user(user_id)
     text = message.text
 
-    # सुरक्षा जाँच
     if not is_subscribed(user_id):
         bot.send_message(
             user_id,
@@ -214,7 +210,6 @@ def handle_bottom_buttons(message):
         )
         return
 
-    # स्टेट चेक (Mail Create)
     state = user_states.get(user_id)
     if state == "AWAITING_MAIL_DETAILS":
         if text == "❌ Cancel":
@@ -238,26 +233,25 @@ def handle_bottom_buttons(message):
 
         bot.send_message(
             user_id,
-            "✅ आपकी रिक्वेस्ट एडमिन को भेज दी गई है! हम जल्द ही संपर्क करेंगे।",
+            "✅ **Your request has been sent to admin!** We will contact you shortly.",
             reply_markup=get_bottom_menu_keyboard()
         )
         return
 
-    # Menu Actions
     if text == "Join Announcement Channel":
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("📢 Open Announcement Channel", url=ANNOUNCEMENT_CHANNEL_LINK))
-        bot.send_message(user_id, "👇 टैप करके Announcement Channel जॉइन करें:", reply_markup=markup)
+        bot.send_message(user_id, "👇 Tap below to join our official Announcement Channel:", reply_markup=markup)
 
     elif text == "Consumer helpline 📞":
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("💬 Contact Support", url=CONSUMER_HELPLINE_USER))
-        bot.send_message(user_id, "📞 किसी भी सहायता या प्रश्न के लिए सपोर्ट से संपर्क करें:", reply_markup=markup)
+        bot.send_message(user_id, "📞 For any queries, orders or assistance, contact support below:", reply_markup=markup)
 
     elif text == "Work with us":
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🤝 Contact for Work", url=WORK_WITH_US_LINK))
-        bot.send_message(user_id, "💼 हमारे साथ काम करने या बल्क ऑर्डर्स के लिए संपर्क करें:", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton("🤝 Partner With Us", url=WORK_WITH_US_LINK))
+        bot.send_message(user_id, "💼 To partner, resell or place bulk orders, contact us below:", reply_markup=markup)
 
     elif text == "Mail create":
         user_states[user_id] = "AWAITING_MAIL_DETAILS"
@@ -265,7 +259,7 @@ def handle_bottom_buttons(message):
         cancel_kb.add(types.KeyboardButton("❌ Cancel"))
         bot.send_message(
             user_id,
-            "✍️ **Mail Creation Order:**\n\nकृपया अपनी ज़रूरत (जैसे कितनी मेल चाहिए, कोई खास नाम आदि) लिखकर भेजें:",
+            "✍️ **Place Mail Order:**\n\nPlease enter your requirements (Quantity, Domain/Names, etc.):",
             reply_markup=cancel_kb,
             parse_mode="Markdown"
         )
@@ -274,7 +268,7 @@ def handle_bottom_buttons(message):
         bot.send_message(
             user_id,
             f"💰 **Your Account Balance:**\n\n"
-            f"👤 User ID: `{user_id}`\n"
+            f"🆔 User ID: `{user_id}`\n"
             f"💵 Current Balance: `{user.get('balance', 0)} Credits`\n"
             f"👥 Total Referrals: `{user.get('total_referrals', 0)}`",
             parse_mode="Markdown"
@@ -286,9 +280,9 @@ def handle_bottom_buttons(message):
             ref_link = f"https://t.me/{bot_username}?start={user_id}"
             bot.send_message(
                 user_id,
-                f"👥 **Referral System:**\n\n"
-                f"अपने दोस्तों को अपने लिंक से जोड़ें और हर सफल रेफरल पर **+{PER_REFERRAL_REWARD} Credits** कमाएं!\n\n"
-                f"🔗 **Your Referral Link:**\n`{ref_link}`\n\n"
+                f"👥 **Refer & Earn Program:**\n\n"
+                f"Share your referral link with friends and earn **+{PER_REFERRAL_REWARD} Credits** for every joined user!\n\n"
+                f"🔗 **Your Link:**\n`{ref_link}`\n\n"
                 f"📊 Total Referrals: `{user.get('total_referrals', 0)}`",
                 parse_mode="Markdown"
             )
@@ -297,17 +291,17 @@ def handle_bottom_buttons(message):
 
     elif text == "⚙️ Help":
         help_text = (
-            "⚙️ **Help & Guide:**\n\n"
-            "• **Mail create:** ताज़ा जीमेल अकाउंट्स ऑर्डर करने के लिए इसका उपयोग करें।\n"
-            "• **Referrals:** अपने रेफरल लिंक से दोस्तों को जोड़कर बैलेंस बढ़ाएं।\n"
-            "• **Consumer helpline 📞:** किसी भी तकनीकी समस्या के लिए एडमिन से संपर्क करें: @Jyoex\n\n"
-            "Official Announcement: @comchater"
+            "⚙️ **Help & Information:**\n\n"
+            "• **Mail create:** Request fresh and premium Gmail accounts.\n"
+            "• **Referrals:** Invite friends to earn free credits.\n"
+            "• **Consumer helpline 📞:** Contact direct admin support @Jyoex.\n\n"
+            "Official Updates: @comchater"
         )
         bot.send_message(user_id, help_text, parse_mode="Markdown")
 
 # Auto Polling
 if __name__ == "__main__":
-    print("Gmail Portal Bot running...")
+    print("Clean Gmail Portal Bot running...")
     while True:
         try:
             bot.infinity_polling(timeout=20, long_polling_timeout=10)
