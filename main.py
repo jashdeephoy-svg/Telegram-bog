@@ -144,7 +144,7 @@ MENU_BUTTONS = [
     "24x7 consumer helpline",
     "Work with us",
     "Mail create",
-    "💰 My Balance",
+    "Use credit 💳",
     "👥 Referrals",
     "⭐ Rating / Feedback",
     "⚙️ Help",
@@ -230,7 +230,7 @@ def get_bottom_menu_keyboard(user_id):
     btn_helpline = types.KeyboardButton("24x7 consumer helpline")
     btn_work = types.KeyboardButton("Work with us")
     btn_mail = types.KeyboardButton("Mail create")
-    btn_balance = types.KeyboardButton("💰 My Balance")
+    btn_balance = types.KeyboardButton("Use credit 💳")
     btn_referrals = types.KeyboardButton("👥 Referrals")
     btn_rating = types.KeyboardButton("⭐ Rating / Feedback")
     btn_help = types.KeyboardButton("⚙️ Help")
@@ -253,10 +253,10 @@ def get_balance_options_keyboard(user_id):
         b1 = types.InlineKeyboardButton("🛠️ Admin Balance View (All OK)", callback_data="admin_bal_info")
         markup.add(b1)
     else:
-        b1 = types.InlineKeyboardButton("📧 Redeem Free Gmail (10 Credits)", callback_data="use_cred_gmail")
-        b2 = types.InlineKeyboardButton("✉️ Redeem Free Outlook Mail (5 Credits)", callback_data="use_cred_outlook")
-        b3 = types.InlineKeyboardButton("🔍 Number Details Search (1 Credit)", callback_data="use_cred_numdet")
-        b4 = types.InlineKeyboardButton("🎟️ Buy Lucky Redeem Ticket (10 Credits)", callback_data="use_cred_ticket")
+        b1 = types.InlineKeyboardButton("1mail creation (10 credit)", callback_data="use_cred_gmail")
+        b2 = types.InlineKeyboardButton("BUY LUCK COUPON (10 CREDIT)", callback_data="use_cred_ticket")
+        b3 = types.InlineKeyboardButton("number details 1 credit", callback_data="use_cred_numdet")
+        b4 = types.InlineKeyboardButton("✉️ Redeem Free Outlook Mail (5 Credits)", callback_data="use_cred_outlook")
         markup.add(b1, b2, b3, b4)
     return markup
 
@@ -274,12 +274,14 @@ def get_admin_panel_inline():
     btn5 = types.InlineKeyboardButton(f"🔒 QR Lock ({qr_state})", callback_data="adm_cmd_toggle_qrlock")
     btn6 = types.InlineKeyboardButton("🔄 Change QR Code", callback_data="adm_cmd_update_qr")
     btn7 = types.InlineKeyboardButton("👥 Manage Admins", callback_data="adm_cmd_manage_admins")
-    btn8 = types.InlineKeyboardButton(f"⏰ Auto Timer Msg ({s_state})", callback_data="adm_cmd_auto_timer")
+    btn8 = types.InlineKeyboardButton("💰 Manage User Credits", callback_data="adm_cmd_manage_credits")
+    btn9 = types.InlineKeyboardButton(f"⏰ Auto Timer Msg ({s_state})", callback_data="adm_cmd_auto_timer")
     
     markup.add(btn1, btn2)
     markup.add(btn3, btn4)
     markup.add(btn5, btn6)
     markup.add(btn7, btn8)
+    markup.add(btn9)
     return markup
 
 def get_admin_action_keyboard(target_id):
@@ -321,7 +323,7 @@ def send_delayed_give_hit(target_id):
     cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
     try:
-        bot.send_message(target_id, "𝗚𝗜𝗩𝗘 𝗛𝗜𝗧 𝗢𝗥 𝗠𝗔𝗜𝗟 𝗔𝗡𝗗 𝙔O𝙐𝙍 𝗣𝗔𝗦𝗦", reply_markup=cancel_kb)
+        bot.send_message(target_id, "𝗚𝗜𝗩𝗘 𝗛𝗜𝗧 𝗢𝗥 𝗠𝗔𝗜𝗟 𝗔𝗡𝗗 𝙔𝙊𝙐𝙍 𝗣𝗔𝗦𝗦", reply_markup=cancel_kb)
     except Exception:
         pass
 
@@ -473,15 +475,10 @@ def handle_callbacks(call):
             return
         user["balance"] -= 1
         save_data(data)
-        
-        user_card = format_user_card(call.from_user, user_id)
-        for adm in data.get("admins", SUPER_ADMINS):
-            try:
-                bot.send_message(adm, f"🎁 **CREDIT USER - Number Details Request:**\n{user_card}", reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
-            except Exception:
-                pass
-                
-        bot.send_message(user_id, "Your request has been sent to the moderator. Please hold for 10 minutes.")
+        user_states[user_id] = "AWAITING_NUMBER_INPUT"
+        cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
+        bot.send_message(user_id, "🔍 **1 Credit Deducted!** Please enter the number (must start with +91, format: +91XXXXXXXXXX):", reply_markup=cancel_kb)
         bot.answer_callback_query(call.id, "1 Credit Redeemed ✅")
         return
 
@@ -590,6 +587,13 @@ def handle_callbacks(call):
             bot.send_message(user_id, f"👥 **Current Admins:**\n{current_admins}\n\n👉 Send the **UserID** of the person you want to ADD as Admin:", reply_markup=cancel_kb, parse_mode="Markdown")
             bot.answer_callback_query(call.id)
 
+        elif call.data == "adm_cmd_manage_credits":
+            user_states[user_id] = "ADMIN_MANAGE_CREDITS_ID"
+            cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
+            bot.send_message(user_id, "💰 Enter the **User ID** whose credits you want to modify:", reply_markup=cancel_kb, parse_mode="Markdown")
+            bot.answer_callback_query(call.id)
+
         elif call.data == "adm_cmd_update_qr":
             user_states[user_id] = "ADMIN_SET_QR"
             cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -666,7 +670,34 @@ def handle_all_messages(message):
     if is_admin(user_id) and user_id in user_states:
         state_data = user_states[user_id]
 
-        if state_data == "TIMER_SET_TEXT":
+        if state_data == "ADMIN_MANAGE_CREDITS_ID":
+            if text.isdigit() and str(text) in data["users"]:
+                user_states[user_id] = {"mode": "ADMIN_MANAGE_CREDITS_VAL", "target": str(text)}
+                bot.send_message(user_id, f"💵 Current balance for user `{text}` is `{data['users'][str(text)]['balance']} Credits`.\nEnter new balance amount (or add/sub prefix like `+5` or `-2`):", parse_mode="Markdown")
+            else:
+                bot.send_message(user_id, "❌ User ID not found in database. Try again:")
+            return
+
+        elif isinstance(state_data, dict) and state_data.get("mode") == "ADMIN_MANAGE_CREDITS_VAL":
+            target_usr = state_data["target"]
+            user_states.pop(user_id, None)
+            try:
+                if text.startswith("+"):
+                    data["users"][target_usr]["balance"] += int(text)
+                elif text.startswith("-"):
+                    data["users"][target_usr]["balance"] -= int(text)
+                elif text.isdigit():
+                    data["users"][target_usr]["balance"] = int(text)
+                else:
+                    bot.send_message(user_id, "❌ Invalid format.")
+                    return
+                save_data(data)
+                bot.send_message(user_id, f"✅ Successfully updated balance for user `{target_usr}`. New Balance: `{data['users'][target_usr]['balance']} Credits`", parse_mode="Markdown", reply_markup=get_bottom_menu_keyboard(user_id))
+            except Exception as e:
+                bot.send_message(user_id, f"❌ Error: {e}")
+            return
+
+        elif state_data == "TIMER_SET_TEXT":
             user_states[user_id] = {"mode": "TIMER_SET_INTERVAL", "text": text}
             bot.send_message(user_id, "⏱️ **Step 2:** How many **Minutes** gap between each message? (e.g. `60` for 1 hour, `120` for 2 hours):", parse_mode="Markdown")
             return
@@ -793,6 +824,32 @@ def handle_all_messages(message):
 
     state = user_states.get(user_id)
 
+    # Number Details Input Validation for Credit Service
+    if state == "AWAITING_NUMBER_INPUT":
+        user_states.pop(user_id, None)
+        if not text.startswith("+91") or len(text) < 13:
+            bot.send_message(
+                user_id,
+                "❌ Send Number must start with\n         +91\n📞 Format: +91XXXXXXXXXX",
+                reply_markup=get_bottom_menu_keyboard(user_id)
+            )
+            return
+        
+        user_card = format_user_card(message.from_user, user_id)
+        for admin in data.get("admins", SUPER_ADMINS):
+            try:
+                bot.send_message(
+                    admin,
+                    f"🔍 **CREDIT USER - Number Details Query:**\n{user_card}\n\n📱 **Target Number:**\n`{text}`",
+                    reply_markup=get_admin_action_keyboard(user_id),
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+        bot.send_message(user_id, "Your request has been sent to the moderator. Please hold for 10 minutes.", reply_markup=get_bottom_menu_keyboard(user_id))
+        return
+
+    # Consumer Helpline State (Only applies here)
     if state == "AWAITING_SUPPORT_MESSAGE":
         msg_length = len(text)
         word_count = len(text.split())
@@ -924,7 +981,7 @@ def handle_all_messages(message):
         
         bot.send_message(user_id, f"{caption_text}\n\n{second_text}", reply_markup=cancel_kb)
 
-    elif text == "💰 My Balance":
+    elif text == "Use credit 💳":
         user_info = get_user(user_id, message.from_user)
         name = message.from_user.first_name or "User"
         profile_link = f"[{name}](tg://user?id={user_id})"
