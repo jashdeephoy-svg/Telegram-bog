@@ -144,7 +144,7 @@ MENU_BUTTONS = [
     "24x7 consumer helpline",
     "Work with us",
     "Mail create",
-    "Use credit 💳",
+    "Balance",
     "👥 Referrals",
     "⭐ Rating / Feedback",
     "⚙️ Help",
@@ -155,6 +155,29 @@ MENU_BUTTONS = [
 
 def is_admin(user_id):
     return user_id in data.get("admins", SUPER_ADMINS) or user_id in SUPER_ADMINS
+
+def find_user_key(query):
+    query_str = str(query).strip().lower()
+    if query_str.startswith("@"):
+        query_str = query_str[1:]
+    for uid, udata in data.get("users", {}).items():
+        if str(uid) == query_str:
+            return uid
+    return None
+
+def format_user_card_by_id(user_id):
+    str_id = str(user_id)
+    if str_id not in data["users"]:
+        return None
+    user_info = data["users"][str_id]
+    return (
+        f"👤 **USER PROFILE DETAILS**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🆔 **User ID:** [`{user_id}`](tg://user?id={user_id})\n"
+        f"💵 **Current Balance:** `{user_info.get('balance', 0)} Credits`\n"
+        f"👥 **Total Referrals:** `{user_info.get('total_referrals', 0)} Users`\n"
+        f"📅 **Member Since:** `{user_info.get('joined_at', '2026')}`"
+    )
 
 def format_user_card(user_obj, user_id):
     name = user_obj.first_name if hasattr(user_obj, 'first_name') else "User"
@@ -230,7 +253,7 @@ def get_bottom_menu_keyboard(user_id):
     btn_helpline = types.KeyboardButton("24x7 consumer helpline")
     btn_work = types.KeyboardButton("Work with us")
     btn_mail = types.KeyboardButton("Mail create")
-    btn_balance = types.KeyboardButton("Use credit 💳")
+    btn_balance = types.KeyboardButton("Balance")
     btn_referrals = types.KeyboardButton("👥 Referrals")
     btn_rating = types.KeyboardButton("⭐ Rating / Feedback")
     btn_help = types.KeyboardButton("⚙️ Help")
@@ -247,17 +270,13 @@ def get_bottom_menu_keyboard(user_id):
         markup.row(btn_rating, btn_help)
     return markup
 
-def get_balance_options_keyboard(user_id):
+def get_use_credit_menu_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=1)
-    if is_admin(user_id):
-        b1 = types.InlineKeyboardButton("🛠️ Admin Balance View (All OK)", callback_data="admin_bal_info")
-        markup.add(b1)
-    else:
-        b1 = types.InlineKeyboardButton("1mail creation (10 credit)", callback_data="use_cred_gmail")
-        b2 = types.InlineKeyboardButton("BUY LUCK COUPON (10 CREDIT)", callback_data="use_cred_ticket")
-        b3 = types.InlineKeyboardButton("number details 1 credit", callback_data="use_cred_numdet")
-        b4 = types.InlineKeyboardButton("✉️ Redeem Free Outlook Mail (5 Credits)", callback_data="use_cred_outlook")
-        markup.add(b1, b2, b3, b4)
+    b1 = types.InlineKeyboardButton("1mail creation (10 credit)", callback_data="use_cred_gmail")
+    b2 = types.InlineKeyboardButton("BUY LUCK COUPON (10 CREDIT)", callback_data="use_cred_ticket")
+    b3 = types.InlineKeyboardButton("number details 1 credit", callback_data="use_cred_numdet")
+    b4 = types.InlineKeyboardButton("Redeem Free Outlook Mail (5 Credits)", callback_data="use_cred_outlook")
+    markup.add(b1, b2, b3, b4)
     return markup
 
 def get_admin_panel_inline():
@@ -428,11 +447,12 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, "❌ Please join all channels first!", show_alert=True)
         return
 
-    if call.data == "admin_bal_info":
-        bot.answer_callback_query(call.id, "✅ Admin Balance View is fully active and functioning correctly for users!", show_alert=True)
+    if call.data == "open_use_credit_menu":
+        bot.send_message(user_id, "👇 **Use Credit Points Menu:**", reply_markup=get_use_credit_menu_keyboard(), parse_mode="Markdown")
+        bot.answer_callback_query(call.id)
         return
 
-    # Use Credit Points Redeem Actions with Admin Notification & 10-Min Hold message
+    # Use Credit Points Redeem Actions
     if call.data == "use_cred_gmail":
         if user["balance"] < 10:
             bot.answer_callback_query(call.id, "❌ You need at least 10 Credits!", show_alert=True)
@@ -591,7 +611,7 @@ def handle_callbacks(call):
             user_states[user_id] = "ADMIN_MANAGE_CREDITS_ID"
             cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
             cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
-            bot.send_message(user_id, "💰 Enter the **User ID** whose credits you want to modify:", reply_markup=cancel_kb, parse_mode="Markdown")
+            bot.send_message(user_id, "💰 Enter the **User ID or Username** (e.g. `123456789` or `@username`) whose credits you want to modify:", reply_markup=cancel_kb, parse_mode="Markdown")
             bot.answer_callback_query(call.id)
 
         elif call.data == "adm_cmd_update_qr":
@@ -666,32 +686,52 @@ def handle_all_messages(message):
         bot.send_message(user_id, "⛔ You are banned from using this bot.")
         return
 
+    # Cancel handling (Top priority check)
+    if text in ["🚫 Cancel", "❌ Cancel"]:
+        user_states.pop(user_id, None)
+        bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard(user_id))
+        return
+
     # Admin Control Multi-step Handlers
     if is_admin(user_id) and user_id in user_states:
         state_data = user_states[user_id]
 
         if state_data == "ADMIN_MANAGE_CREDITS_ID":
-            if text.isdigit() and str(text) in data["users"]:
-                user_states[user_id] = {"mode": "ADMIN_MANAGE_CREDITS_VAL", "target": str(text)}
-                bot.send_message(user_id, f"💵 Current balance for user `{text}` is `{data['users'][str(text)]['balance']} Credits`.\nEnter new balance amount (or add/sub prefix like `+5` or `-2`):", parse_mode="Markdown")
+            found_key = find_user_key(text)
+            if found_key:
+                user_states[user_id] = {"mode": "ADMIN_MANAGE_CREDITS_VAL", "target": found_key}
+                card = format_user_card_by_id(found_key)
+                bot.send_message(user_id, f"{card}\n\n🎁 **Gift Credits:** Enter the amount to add (e.g., `5`) or exact balance (e.g., `20`):", parse_mode="Markdown")
             else:
-                bot.send_message(user_id, "❌ User ID not found in database. Try again:")
+                bot.send_message(user_id, "❌ User ID or Username not found in database. Try again or type Cancel:")
             return
 
         elif isinstance(state_data, dict) and state_data.get("mode") == "ADMIN_MANAGE_CREDITS_VAL":
             target_usr = state_data["target"]
             user_states.pop(user_id, None)
             try:
+                added_amount = 0
                 if text.startswith("+"):
-                    data["users"][target_usr]["balance"] += int(text)
+                    added_amount = int(text)
+                    data["users"][target_usr]["balance"] += added_amount
                 elif text.startswith("-"):
-                    data["users"][target_usr]["balance"] -= int(text)
+                    added_amount = int(text)
+                    data["users"][target_usr]["balance"] -= added_amount
                 elif text.isdigit():
-                    data["users"][target_usr]["balance"] = int(text)
+                    new_val = int(text)
+                    added_amount = new_val - data["users"][target_usr]["balance"]
+                    data["users"][target_usr]["balance"] = new_val
                 else:
                     bot.send_message(user_id, "❌ Invalid format.")
                     return
                 save_data(data)
+                
+                # Notify User
+                try:
+                    bot.send_message(int(target_usr), f"🎉 **Congratulations!**\nAdmin has gifted you **{added_amount} Credits**!\nNew Balance: `{data['users'][target_usr]['balance']} Credits`", parse_mode="Markdown")
+                except Exception:
+                    pass
+
                 bot.send_message(user_id, f"✅ Successfully updated balance for user `{target_usr}`. New Balance: `{data['users'][target_usr]['balance']} Credits`", parse_mode="Markdown", reply_markup=get_bottom_menu_keyboard(user_id))
             except Exception as e:
                 bot.send_message(user_id, f"❌ Error: {e}")
@@ -782,11 +822,6 @@ def handle_all_messages(message):
                 except Exception as e:
                     bot.send_message(user_id, f"❌ Failed to send: {e}")
                 return
-
-    if text in ["🚫 Cancel", "❌ Cancel"]:
-        user_states.pop(user_id, None)
-        bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard(user_id))
-        return
 
     if user_id in user_states and isinstance(user_states[user_id], dict) and user_states[user_id].get("mode") == "WAITING_FEEDBACK_TEXT":
         rating = user_states[user_id]["rating"]
@@ -981,12 +1016,15 @@ def handle_all_messages(message):
         
         bot.send_message(user_id, f"{caption_text}\n\n{second_text}", reply_markup=cancel_kb)
 
-    elif text == "Use credit 💳":
+    elif text == "Balance":
         user_info = get_user(user_id, message.from_user)
         name = message.from_user.first_name or "User"
         profile_link = f"[{name}](tg://user?id={user_id})"
         username = f"@{message.from_user.username}" if message.from_user.username else "None"
         
+        inline_kb = types.InlineKeyboardMarkup()
+        inline_kb.add(types.InlineKeyboardButton("Use credit 💳", callback_data="open_use_credit_menu"))
+
         balance_card = (
             f"👤 **USER ACCOUNT & BALANCE DETAILS**\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -995,11 +1033,9 @@ def handle_all_messages(message):
             f"🔗 **Username:** {username}\n"
             f"💵 **Current Balance:** `{user_info.get('balance', 0)} Credits`\n"
             f"👥 **Total Referrals:** `{user_info.get('total_referrals', 0)} Users`\n"
-            f"📅 **Member Since:** `{user_info.get('joined_at', '2026')}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👇 **Use Credit Points Menu:**"
+            f"📅 **Member Since:** `{user_info.get('joined_at', '2026')}`"
         )
-        bot.send_message(user_id, balance_card, reply_markup=get_balance_options_keyboard(user_id), parse_mode="Markdown")
+        bot.send_message(user_id, balance_card, reply_markup=inline_kb, parse_mode="Markdown")
 
     elif text == "👥 Referrals":
         user_info = get_user(user_id, message.from_user)
