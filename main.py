@@ -96,8 +96,8 @@ def save_data(data):
 data = load_data()
 user_states = {}
 processing_timers = {}
+user_last_messages = {}
 
-# Clean Luck Draw Tickets
 REDEEM_TICKETS = [
     {"code": "Freezgmail1", "chance": 30, "msg": "🎉 **CONGRATS!**\nYOU GOT A FREE 2 GMAIL CREATION TICKET!"},
     {"code": "nex&time2", "chance": 90, "msg": "😔 **SORRY NEXT TIME!**"},
@@ -224,7 +224,8 @@ def get_user(user_id, user_obj=None):
             "referred_by": None,
             "referral_rewarded": False,
             "total_referrals": 0,
-            "joined_at": time.strftime("%d-%m-%Y %H:%M")
+            "joined_at": time.strftime("%d-%m-%Y %H:%M"),
+            "blocked": False
         }
         save_data(data)
     else:
@@ -354,7 +355,7 @@ def send_delayed_give_hit(target_id):
     cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
     try:
-        bot.send_message(target_id, "𝗚𝗜𝗩𝗘 𝗛𝗜𝗧 𝗢𝗥 𝗠𝗔𝗜𝗟 𝗔𝗡𝗗 𝙔O𝙐𝗥 𝗣𝗔𝗦𝗦", reply_markup=cancel_kb)
+        bot.send_message(target_id, "𝗚𝗜𝗩𝗘 𝗛𝗜𝗧 𝗢𝗥 𝗠𝗔𝗜𝗟 𝗔𝗡𝗗 𝙔𝙊𝙐𝙍 𝗣𝗔𝗦𝗦", reply_markup=cancel_kb)
     except Exception:
         pass
 
@@ -382,6 +383,8 @@ def on_user_block_or_unblock(message):
     user_info = data.get("users", {}).get(str(user_id), {})
     
     if new_status in ['kicked', 'left']:
+        user_info["blocked"] = True
+        save_data(data)
         alert = (
             f"🚫 **User Left / Blocked Bot Alert:**\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
@@ -397,6 +400,10 @@ def on_user_block_or_unblock(message):
                 bot.send_message(adm, alert, parse_mode="Markdown")
             except Exception:
                 pass
+    elif new_status == 'member':
+        if str(user_id) in data["users"]:
+            data["users"][str(user_id)]["blocked"] = False
+            save_data(data)
 
 @bot.message_handler(content_types=['new_chat_members'])
 def on_bot_joined_group(message):
@@ -419,28 +426,32 @@ def start_handler(message):
         bot.send_message(user_id, "🛠️ **Bot is under maintenance for upgrades!**\nPlease wait, we will be back online soon.")
         return
 
-    is_already_registered = str(user_id) in data.get("users", {})
+    str_id = str(user_id)
+    is_existing = str_id in data.get("users", {})
+    was_blocked = is_existing and data["users"][str_id].get("blocked", False)
+    
     user = get_user(user_id, message.from_user)
     user_states.pop(user_id, None)
 
-    # Notify admin about new / restart user
+    # Notify admin only for New User or Restart (after unblock/left)
     if data.get("settings", {}).get("new_user_notify", True) and user_id not in SUPER_ADMINS:
-        name = message.from_user.first_name or "User"
-        username = f"@{message.from_user.username}" if message.from_user.username else "None"
-        profile_link = f"[{name}](tg://user?id={user_id})"
-        status_text = "🔄 **Restart User Alert:**" if is_already_registered else "🆕 **New User Alert:**"
-        alert_msg = (
-            f"{status_text}\n"
-            f"👤 Name: {profile_link}\n"
-            f"🆔 User ID: [`{user_id}`](tg://user?id={user_id})\n"
-            f"🔗 Username: {username}\n"
-            f"📅 Date: `{time.strftime('%d-%m-%Y %H:%M')}`"
-        )
-        for adm in data.get("admins", SUPER_ADMINS):
-            try:
-                bot.send_message(adm, alert_msg, parse_mode="Markdown")
-            except Exception:
-                pass
+        if not is_existing or was_blocked:
+            name = message.from_user.first_name or "User"
+            username = f"@{message.from_user.username}" if message.from_user.username else "None"
+            profile_link = f"[{name}](tg://user?id={user_id})"
+            status_text = "🔄 **Restart User Alert:**" if was_blocked else "🆕 **New User Alert:**"
+            alert_msg = (
+                f"{status_text}\n"
+                f"👤 Name: {profile_link}\n"
+                f"🆔 User ID: [`{user_id}`](tg://user?id={user_id})\n"
+                f"🔗 Username: {username}\n"
+                f"📅 Date: `{time.strftime('%d-%m-%Y %H:%M')}`"
+            )
+            for adm in data.get("admins", SUPER_ADMINS):
+                try:
+                    bot.send_message(adm, alert_msg, parse_mode="Markdown")
+                except Exception:
+                    pass
 
     if message.text.startswith('/admin'):
         if is_admin(user_id):
@@ -510,7 +521,7 @@ def handle_callbacks(call):
         bot.answer_callback_query(call.id)
         return
 
-    # Use Credit Points Redeem Actions (Admin has Free Unlimited Test Access)
+    # Use Credit Points Redeem Actions (Admin Free Unlimited Access)
     if call.data == "use_cred_gmail":
         admin_mode = is_admin(user_id)
         if not admin_mode and user["balance"] < 10:
@@ -623,16 +634,16 @@ def handle_callbacks(call):
             total_users = len(data.get("users", {}))
             total_admins = len(data.get("admins", SUPER_ADMINS))
             stats_text = (
-                f"📊 **BOT STATISTICS**\n━━━━━━━━━━━━━━━━━━━━\n"
-                f"👥 Total Users: `{total_users}`\n"
-                f"👑 Total Admins: `{total_admins}`\n"
-                f"👥 Active Groups: `{len(data.get('groups', []))}`\n"
-                f"🚫 Banned Users: `{len(data.get('banned', []))}`\n"
-                f"⭐ Reviews Received: `{len(data.get('feedbacks', []))}`\n"
-                f"🔒 QR Status: `{'LOCKED' if data.get('qr_locked', True) else 'UNLOCKED'}`\n"
-                f"⚙️ Maintenance: `{'ON' if data['settings'].get('maintenance') else 'OFF'}`\n"
+                f"📊 **DETAILED BOT STATISTICS**\n━━━━━━━━━━━━━━━━━━━━\n"
+                f"👥 Total Registered Users: `{total_users}`\n"
+                f"👑 Total Active Admins: `{total_admins}`\n"
+                f"👥 Active Groups Connected: `{len(data.get('groups', []))}`\n"
+                f"🚫 Banned Users Count: `{len(data.get('banned', []))}`\n"
+                f"⭐ Total Reviews Received: `{len(data.get('feedbacks', []))}`\n"
+                f"🔒 QR System Status: `{'LOCKED' if data.get('qr_locked', True) else 'UNLOCKED'}`\n"
+                f"⚙️ Maintenance Mode: `{'ON' if data['settings'].get('maintenance') else 'OFF'}`\n"
                 f"🔔 New User Notify: `{'ON' if data['settings'].get('new_user_notify') else 'OFF'}`\n"
-                f"⏰ Auto Timer Msg: `{'ON' if data.get('scheduler', {}).get('enabled') else 'OFF'}`\n"
+                f"⏰ Auto Timer Status: `{'ON' if data.get('scheduler', {}).get('enabled') else 'OFF'}`\n"
             )
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("👥 View Users List", callback_data="adm_view_users_list"))
@@ -696,12 +707,44 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id)
 
         elif call.data == "adm_cmd_manage_admins":
-            user_states[user_id] = "ADMIN_ADD_ADMIN"
-            cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
-            current_admins = ", ".join([f"[`{a}`](tg://user?id={a})" for a in data.get("admins", SUPER_ADMINS)])
-            bot.send_message(user_id, f"👥 **Current Admins:**\n{current_admins}\n\n👉 Send the **UserID or Username** of the person you want to ADD as Admin:", reply_markup=cancel_kb, parse_mode="Markdown")
+            users = data.get("users", {})
+            if not users:
+                bot.send_message(user_id, "No users in database to manage.")
+                bot.answer_callback_query(call.id)
+                return
+            markup = types.InlineKeyboardMarkup(row_width=1)
+            for uid, uinfo in list(users.items())[:35]:
+                name = uinfo.get("name", "User")
+                is_adm = int(uid) in data.get("admins", SUPER_ADMINS)
+                status_icon = "👑 Admin"
+                if not is_adm:
+                    status_icon = "👤 Member"
+                markup.add(types.InlineKeyboardButton(f"{name} ({uid}) - {status_icon}", callback_data=f"adm_toggle_promote_{uid}"))
+            bot.send_message(user_id, "👥 **Select a member to Promote or Demote:**", reply_markup=markup, parse_mode="Markdown")
             bot.answer_callback_query(call.id)
+
+        elif call.data.startswith("adm_toggle_promote_"):
+            target_uid = int(call.data.split("adm_toggle_promote_")[1])
+            if target_uid in SUPER_ADMINS:
+                bot.answer_callback_query(call.id, "Cannot modify Super Admin!", show_alert=True)
+                return
+            if target_uid in data.get("admins", []):
+                data["admins"].remove(target_uid)
+                save_data(data)
+                bot.answer_callback_query(call.id, "Demoted successfully ❌")
+                try:
+                    bot.send_message(target_uid, "You are demoted from the admin.")
+                except Exception:
+                    pass
+            else:
+                data.setdefault("admins", []).append(target_uid)
+                save_data(data)
+                bot.answer_callback_query(call.id, "Promoted successfully ✅")
+                try:
+                    bot.send_message(target_uid, "Congrats now you are the moderator of our bot.")
+                except Exception:
+                    pass
+            return
 
         elif call.data == "adm_cmd_manage_credits":
             user_states[user_id] = "ADMIN_MANAGE_CREDITS_ID"
@@ -773,6 +816,17 @@ def handle_all_messages(message):
         if chat_id not in data.get("groups", []):
             data.setdefault("groups", []).append(chat_id)
             save_data(data)
+        return
+
+    # Auto-delete older user action messages if exceeding limit (Keep chat clean)
+    user_last_messages.setdefault(user_id, [])
+    user_last_messages[user_id].append(message.message_id)
+    if len(user_last_messages[user_id]) > 4:
+        old_msg_id = user_last_messages[user_id].pop(0)
+        try:
+            bot.delete_message(chat_id, old_msg_id)
+        except Exception:
+            pass
 
     if data.get("settings", {}).get("maintenance", False) and not is_admin(user_id):
         bot.send_message(user_id, "🛠️ **Bot is under maintenance for upgrades!**\nPlease wait, we will be back online soon.")
