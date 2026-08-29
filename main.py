@@ -1,5 +1,6 @@
 import os
 import time
+import re
 import json
 import random
 import threading
@@ -96,7 +97,7 @@ data = load_data()
 user_states = {}
 processing_timers = {}
 
-# Clean Luck Draw Tickets (Without showing chance % to users)
+# Clean Luck Draw Tickets
 REDEEM_TICKETS = [
     {"code": "Freezgmail1", "chance": 30, "msg": "🎉 **CONGRATS!**\nYOU GOT A FREE 2 GMAIL CREATION TICKET!"},
     {"code": "nex&time2", "chance": 90, "msg": "😔 **SORRY NEXT TIME!**"},
@@ -156,12 +157,27 @@ MENU_BUTTONS = [
 def is_admin(user_id):
     return user_id in data.get("admins", SUPER_ADMINS) or user_id in SUPER_ADMINS
 
+def parse_time_input(input_text):
+    text = input_text.lower().strip()
+    match_hr = re.search(r'(\d+)\s*(hour|hr|h)', text)
+    if match_hr:
+        return int(match_hr.group(1)) * 60
+    match_min = re.search(r'(\d+)\s*(minute|min|m)', text)
+    if match_min:
+        return int(match_min.group(1))
+    if text.isdigit():
+        return int(text)
+    return None
+
 def find_user_key(query):
     query_str = str(query).strip().lower()
     if query_str.startswith("@"):
         query_str = query_str[1:]
     for uid, udata in data.get("users", {}).items():
         if str(uid) == query_str:
+            return uid
+        stored_uname = str(udata.get("username", "")).lower().replace("@", "")
+        if stored_uname and stored_uname == query_str:
             return uid
     return None
 
@@ -170,10 +186,14 @@ def format_user_card_by_id(user_id):
     if str_id not in data["users"]:
         return None
     user_info = data["users"][str_id]
+    name = user_info.get("name", "User")
+    uname = f"@{user_info.get('username')}" if user_info.get('username') else "None"
     return (
         f"👤 **USER PROFILE DETAILS**\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **Name:** [{name}](tg://user?id={user_id})\n"
         f"🆔 **User ID:** [`{user_id}`](tg://user?id={user_id})\n"
+        f"🔗 **Username:** {uname}\n"
         f"💵 **Current Balance:** `{user_info.get('balance', 0)} Credits`\n"
         f"👥 **Total Referrals:** `{user_info.get('total_referrals', 0)} Users`\n"
         f"📅 **Member Since:** `{user_info.get('joined_at', '2026')}`"
@@ -183,7 +203,7 @@ def format_user_card(user_obj, user_id):
     name = user_obj.first_name if hasattr(user_obj, 'first_name') else "User"
     username = f"@{user_obj.username}" if getattr(user_obj, 'username', None) else "None"
     profile_link = f"[{name}](tg://user?id={user_id})"
-    user_info = get_user(user_id)
+    user_info = get_user(user_id, user_obj)
     
     return (
         f"👤 User: {profile_link}\n"
@@ -195,8 +215,11 @@ def format_user_card(user_obj, user_id):
 
 def get_user(user_id, user_obj=None):
     str_id = str(user_id)
-    if str_id not in data["users"]:
+    is_new = str_id not in data["users"]
+    if is_new:
         data["users"][str_id] = {
+            "name": user_obj.first_name if user_obj else "User",
+            "username": user_obj.username if user_obj else None,
             "balance": 0,
             "referred_by": None,
             "referral_rewarded": False,
@@ -204,24 +227,13 @@ def get_user(user_id, user_obj=None):
             "joined_at": time.strftime("%d-%m-%Y %H:%M")
         }
         save_data(data)
-        
-        if data.get("settings", {}).get("new_user_notify", True) and user_obj:
-            name = user_obj.first_name or "User"
-            username = f"@{user_obj.username}" if user_obj.username else "None"
-            profile_link = f"[{name}](tg://user?id={user_id})"
-            
-            alert_msg = (
-                f"👤 **New User Alert:**\n"
-                f"👤 Name: {profile_link}\n"
-                f"🆔 User ID: [`{user_id}`](tg://user?id={user_id})\n"
-                f"🔗 Username: {username}\n"
-                f"📅 Date: `{time.strftime('%d-%m-%Y %H:%M')}`"
-            )
-            for adm in data.get("admins", SUPER_ADMINS):
-                try:
-                    bot.send_message(adm, alert_msg, parse_mode="Markdown")
-                except Exception:
-                    pass
+    else:
+        if user_obj:
+            if user_obj.first_name:
+                data["users"][str_id]["name"] = user_obj.first_name
+            if user_obj.username:
+                data["users"][str_id]["username"] = user_obj.username
+            save_data(data)
     return data["users"][str_id]
 
 def is_subscribed(user_id):
@@ -287,7 +299,7 @@ def get_admin_panel_inline():
     qr_state = "🟢 LOCKED" if data.get("qr_locked", True) else "🔓 UNLOCKED"
     
     btn1 = types.InlineKeyboardButton("📨 Mailing / Broadcast", callback_data="adm_cmd_mail")
-    btn2 = types.InlineKeyboardButton("📊 Statistics", callback_data="adm_cmd_stats")
+    btn2 = types.InlineKeyboardButton("📊 Statistics & Users", callback_data="adm_cmd_stats")
     btn3 = types.InlineKeyboardButton(f"🛠️ Maintenance ({m_state})", callback_data="adm_cmd_toggle_maint")
     btn4 = types.InlineKeyboardButton(f"👤 New User Notify ({n_state})", callback_data="adm_cmd_toggle_notify")
     btn5 = types.InlineKeyboardButton(f"🔒 QR Lock ({qr_state})", callback_data="adm_cmd_toggle_qrlock")
@@ -342,7 +354,7 @@ def send_delayed_give_hit(target_id):
     cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
     try:
-        bot.send_message(target_id, "𝗚𝗜𝗩𝗘 𝗛𝗜𝗧 𝗢𝗥 𝗠𝗔𝗜𝗟 𝗔𝗡𝗗 𝙔𝙊𝙐𝙍 𝗣𝗔𝗦𝗦", reply_markup=cancel_kb)
+        bot.send_message(target_id, "𝗚𝗜𝗩𝗘 𝗛𝗜𝗧 𝗢𝗥 𝗠𝗔𝗜𝗟 𝗔𝗡𝗗 𝙔O𝙐𝗥 𝗣𝗔𝗦𝗦", reply_markup=cancel_kb)
     except Exception:
         pass
 
@@ -359,6 +371,32 @@ WELCOME_TEXT = (
     "━━━━━━━━━━━━━━━━━━━━━━\n"
     "⚠️ **Note:** You must join all channels below to access this bot."
 )
+
+@bot.my_chat_member_handler()
+def on_user_block_or_unblock(message):
+    new_status = message.new_chat_member.status
+    user_id = message.from_user.id
+    name = message.from_user.first_name or "User"
+    username = f"@{message.from_user.username}" if message.from_user.username else "None"
+    profile_link = f"[{name}](tg://user?id={user_id})"
+    user_info = data.get("users", {}).get(str(user_id), {})
+    
+    if new_status in ['kicked', 'left']:
+        alert = (
+            f"🚫 **User Left / Blocked Bot Alert:**\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 User: {profile_link}\n"
+            f"🆔 User ID: [`{user_id}`](tg://user?id={user_id})\n"
+            f"🔗 Username: {username}\n"
+            f"💵 Balance: `{user_info.get('balance', 0)} Credits`\n"
+            f"👥 Referrals: `{user_info.get('total_referrals', 0)}`\n"
+            f"📅 Left At: `{time.strftime('%d-%m-%Y %H:%M')}`"
+        )
+        for adm in data.get("admins", SUPER_ADMINS):
+            try:
+                bot.send_message(adm, alert, parse_mode="Markdown")
+            except Exception:
+                pass
 
 @bot.message_handler(content_types=['new_chat_members'])
 def on_bot_joined_group(message):
@@ -381,8 +419,28 @@ def start_handler(message):
         bot.send_message(user_id, "🛠️ **Bot is under maintenance for upgrades!**\nPlease wait, we will be back online soon.")
         return
 
+    is_already_registered = str(user_id) in data.get("users", {})
     user = get_user(user_id, message.from_user)
     user_states.pop(user_id, None)
+
+    # Notify admin about new / restart user
+    if data.get("settings", {}).get("new_user_notify", True) and user_id not in SUPER_ADMINS:
+        name = message.from_user.first_name or "User"
+        username = f"@{message.from_user.username}" if message.from_user.username else "None"
+        profile_link = f"[{name}](tg://user?id={user_id})"
+        status_text = "🔄 **Restart User Alert:**" if is_already_registered else "🆕 **New User Alert:**"
+        alert_msg = (
+            f"{status_text}\n"
+            f"👤 Name: {profile_link}\n"
+            f"🆔 User ID: [`{user_id}`](tg://user?id={user_id})\n"
+            f"🔗 Username: {username}\n"
+            f"📅 Date: `{time.strftime('%d-%m-%Y %H:%M')}`"
+        )
+        for adm in data.get("admins", SUPER_ADMINS):
+            try:
+                bot.send_message(adm, alert_msg, parse_mode="Markdown")
+            except Exception:
+                pass
 
     if message.text.startswith('/admin'):
         if is_admin(user_id):
@@ -452,62 +510,72 @@ def handle_callbacks(call):
         bot.answer_callback_query(call.id)
         return
 
-    # Use Credit Points Redeem Actions
+    # Use Credit Points Redeem Actions (Admin has Free Unlimited Test Access)
     if call.data == "use_cred_gmail":
-        if user["balance"] < 10:
+        admin_mode = is_admin(user_id)
+        if not admin_mode and user["balance"] < 10:
             bot.answer_callback_query(call.id, "❌ You need at least 10 Credits!", show_alert=True)
             return
-        user["balance"] -= 10
-        save_data(data)
+        if not admin_mode:
+            user["balance"] -= 10
+            save_data(data)
         
         user_card = format_user_card(call.from_user, user_id)
         for adm in data.get("admins", SUPER_ADMINS):
             try:
-                bot.send_message(adm, f"🎁 **CREDIT USER - Free Gmail Request:**\n{user_card}", reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
+                tag = "👑 ADMIN TEST REQUEST" if admin_mode else "🎁 CREDIT USER"
+                bot.send_message(adm, f"{tag} - Free Gmail Request:\n{user_card}", reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
             except Exception:
                 pass
                 
         bot.send_message(user_id, "Your request has been sent to the moderator. Please hold for 10 minutes.")
-        bot.answer_callback_query(call.id, "10 Credits Redeemed ✅")
+        bot.answer_callback_query(call.id, "Request Submitted ✅")
         return
 
     elif call.data == "use_cred_outlook":
-        if user["balance"] < 5:
+        admin_mode = is_admin(user_id)
+        if not admin_mode and user["balance"] < 5:
             bot.answer_callback_query(call.id, "❌ You need at least 5 Credits!", show_alert=True)
             return
-        user["balance"] -= 5
-        save_data(data)
+        if not admin_mode:
+            user["balance"] -= 5
+            save_data(data)
         
         user_card = format_user_card(call.from_user, user_id)
         for adm in data.get("admins", SUPER_ADMINS):
             try:
-                bot.send_message(adm, f"🎁 **CREDIT USER - Outlook Mail Request:**\n{user_card}", reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
+                tag = "👑 ADMIN TEST REQUEST" if admin_mode else "🎁 CREDIT USER"
+                bot.send_message(adm, f"{tag} - Outlook Mail Request:\n{user_card}", reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
             except Exception:
                 pass
                 
         bot.send_message(user_id, "Your request has been sent to the moderator. Please hold for 10 minutes.")
-        bot.answer_callback_query(call.id, "5 Credits Redeemed ✅")
+        bot.answer_callback_query(call.id, "Request Submitted ✅")
         return
 
     elif call.data == "use_cred_numdet":
-        if user["balance"] < 1:
+        admin_mode = is_admin(user_id)
+        if not admin_mode and user["balance"] < 1:
             bot.answer_callback_query(call.id, "❌ You need at least 1 Credit!", show_alert=True)
             return
-        user["balance"] -= 1
-        save_data(data)
+        if not admin_mode:
+            user["balance"] -= 1
+            save_data(data)
         user_states[user_id] = "AWAITING_NUMBER_INPUT"
         cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
         cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
-        bot.send_message(user_id, "🔍 **1 Credit Deducted!** Please enter the number (must start with +91, format: +91XXXXXXXXXX):", reply_markup=cancel_kb)
-        bot.answer_callback_query(call.id, "1 Credit Redeemed ✅")
+        bot.send_message(user_id, "🔍 Please enter the number (must start with +91, format: +91XXXXXXXXXX):", reply_markup=cancel_kb)
+        bot.answer_callback_query(call.id, "Enter Phone Number")
         return
 
     elif call.data == "use_cred_ticket":
-        if user["balance"] < 10:
+        admin_mode = is_admin(user_id)
+        if not admin_mode and user["balance"] < 10:
             bot.answer_callback_query(call.id, "❌ 10 Credits required for Lucky Redeem Ticket!", show_alert=True)
             return
-        user["balance"] -= 10
-        save_data(data)
+        if not admin_mode:
+            user["balance"] -= 10
+            save_data(data)
         
         weights = [t["chance"] for t in REDEEM_TICKETS]
         selected_ticket = random.choices(REDEEM_TICKETS, weights=weights, k=1)[0]
@@ -515,17 +583,19 @@ def handle_callbacks(call):
         user_card = format_user_card(call.from_user, user_id)
         for adm in data.get("admins", SUPER_ADMINS):
             try:
-                bot.send_message(adm, f"🎟️ **CREDIT USER - Lucky Ticket Win:**\n{user_card}\nTicket: `{selected_ticket['code']}`", reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
+                tag = "👑 ADMIN TEST LUCK" if admin_mode else "🎟️ CREDIT USER"
+                bot.send_message(adm, f"{tag} - Lucky Ticket Win:\n{user_card}\nTicket: `{selected_ticket['code']}`", reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
             except Exception:
                 pass
 
+        bal_str = "Unlimited (Admin Test)" if admin_mode else f"{user['balance']} Credits"
         result_msg = (
             f"🎟️ **LUCKY REDEEM TICKET RESULT** 🎟️\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🏷️ Ticket: `{selected_ticket['code']}`\n\n"
             f"{selected_ticket['msg']}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💵 Remaining Balance: `{user['balance']} Credits`"
+            f"💵 Remaining Balance: `{bal_str}`"
         )
         bot.send_message(user_id, result_msg, parse_mode="Markdown")
         bot.answer_callback_query(call.id, "Ticket Drawn! 🎰")
@@ -541,7 +611,7 @@ def handle_callbacks(call):
         return
 
     if call.data == "user_reply_to_admin":
-        user_states[user_id] = "AWAITING_SUPPORT_MESSAGE"
+        user_states[user_id] = "AWAITING_ADMIN_REPLY_INPUT"
         cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
         cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
         bot.send_message(user_id, "✍️ Type your reply for the admin:", reply_markup=cancel_kb)
@@ -564,7 +634,26 @@ def handle_callbacks(call):
                 f"🔔 New User Notify: `{'ON' if data['settings'].get('new_user_notify') else 'OFF'}`\n"
                 f"⏰ Auto Timer Msg: `{'ON' if data.get('scheduler', {}).get('enabled') else 'OFF'}`\n"
             )
-            bot.send_message(user_id, stats_text, parse_mode="Markdown")
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("👥 View Users List", callback_data="adm_view_users_list"))
+            bot.send_message(user_id, stats_text, reply_markup=markup, parse_mode="Markdown")
+            bot.answer_callback_query(call.id)
+
+        elif call.data == "adm_view_users_list":
+            users = data.get("users", {})
+            if not users:
+                bot.send_message(user_id, "No users registered yet.")
+                bot.answer_callback_query(call.id)
+                return
+            lines = ["📋 **REGISTERED USERS LIST:**\n━━━━━━━━━━━━━━━━━━━━"]
+            for idx, (uid, uinfo) in enumerate(users.items(), 1):
+                name = uinfo.get("name", "User")
+                uname = f"@{uinfo.get('username')}" if uinfo.get('username') else "No Username"
+                bal = uinfo.get("balance", 0)
+                lines.append(f"{idx}. [{name}](tg://user?id={uid}) (`{uid}`) | {uname}\n   💵 Balance: `{bal} Credits`")
+                if len(lines) >= 30:
+                    break
+            bot.send_message(user_id, "\n".join(lines), parse_mode="Markdown")
             bot.answer_callback_query(call.id)
 
         elif call.data == "adm_cmd_toggle_qrlock":
@@ -592,6 +681,13 @@ def handle_callbacks(call):
             bot.send_message(user_id, "✍️ **Step 1:** Send the **Custom Message Text** you want the bot to broadcast automatically:", reply_markup=cancel_kb, parse_mode="Markdown")
             bot.answer_callback_query(call.id)
 
+        elif call.data.startswith("set_timer_target_"):
+            target_type = call.data.split("set_timer_target_")[1]
+            data.setdefault("scheduler", {})["target"] = target_type
+            save_data(data)
+            bot.send_message(user_id, f"✅ Target set to `{target_type.upper()}`! Auto-timer is broadcasting.")
+            bot.answer_callback_query(call.id)
+
         elif call.data == "adm_cmd_mail":
             user_states[user_id] = "ADMIN_BROADCAST"
             cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -604,14 +700,14 @@ def handle_callbacks(call):
             cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
             cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
             current_admins = ", ".join([f"[`{a}`](tg://user?id={a})" for a in data.get("admins", SUPER_ADMINS)])
-            bot.send_message(user_id, f"👥 **Current Admins:**\n{current_admins}\n\n👉 Send the **UserID** of the person you want to ADD as Admin:", reply_markup=cancel_kb, parse_mode="Markdown")
+            bot.send_message(user_id, f"👥 **Current Admins:**\n{current_admins}\n\n👉 Send the **UserID or Username** of the person you want to ADD as Admin:", reply_markup=cancel_kb, parse_mode="Markdown")
             bot.answer_callback_query(call.id)
 
         elif call.data == "adm_cmd_manage_credits":
             user_states[user_id] = "ADMIN_MANAGE_CREDITS_ID"
             cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
             cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
-            bot.send_message(user_id, "💰 Enter the **User ID or Username** (e.g. `123456789` or `@username`) whose credits you want to modify:", reply_markup=cancel_kb, parse_mode="Markdown")
+            bot.send_message(user_id, "💰 Enter the **User ID or Username** (e.g. `123456789` or `@username`):", reply_markup=cancel_kb, parse_mode="Markdown")
             bot.answer_callback_query(call.id)
 
         elif call.data == "adm_cmd_update_qr":
@@ -686,7 +782,7 @@ def handle_all_messages(message):
         bot.send_message(user_id, "⛔ You are banned from using this bot.")
         return
 
-    # Cancel handling (Top priority check)
+    # Cancel handling (Universal check)
     if text in ["🚫 Cancel", "❌ Cancel"]:
         user_states.pop(user_id, None)
         bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard(user_id))
@@ -701,9 +797,9 @@ def handle_all_messages(message):
             if found_key:
                 user_states[user_id] = {"mode": "ADMIN_MANAGE_CREDITS_VAL", "target": found_key}
                 card = format_user_card_by_id(found_key)
-                bot.send_message(user_id, f"{card}\n\n🎁 **Gift Credits:** Enter the amount to add (e.g., `5`) or exact balance (e.g., `20`):", parse_mode="Markdown")
+                bot.send_message(user_id, f"{card}\n\n🎁 **Enter Credits to Gift / Set:** (e.g. `5`, `+10`, `-2`)", parse_mode="Markdown")
             else:
-                bot.send_message(user_id, "❌ User ID or Username not found in database. Try again or type Cancel:")
+                bot.send_message(user_id, "❌ User not found in database. Make sure user has started the bot! Try again or Cancel:")
             return
 
         elif isinstance(state_data, dict) and state_data.get("mode") == "ADMIN_MANAGE_CREDITS_VAL":
@@ -712,49 +808,56 @@ def handle_all_messages(message):
             try:
                 added_amount = 0
                 if text.startswith("+"):
-                    added_amount = int(text)
+                    added_amount = int(text[1:])
                     data["users"][target_usr]["balance"] += added_amount
                 elif text.startswith("-"):
-                    added_amount = int(text)
-                    data["users"][target_usr]["balance"] -= added_amount
+                    added_amount = -int(text[1:])
+                    data["users"][target_usr]["balance"] += added_amount
                 elif text.isdigit():
                     new_val = int(text)
                     added_amount = new_val - data["users"][target_usr]["balance"]
                     data["users"][target_usr]["balance"] = new_val
                 else:
-                    bot.send_message(user_id, "❌ Invalid format.")
+                    bot.send_message(user_id, "❌ Invalid format. Operation cancelled.", reply_markup=get_bottom_menu_keyboard(user_id))
                     return
                 save_data(data)
                 
                 # Notify User
                 try:
-                    bot.send_message(int(target_usr), f"🎉 **Congratulations!**\nAdmin has gifted you **{added_amount} Credits**!\nNew Balance: `{data['users'][target_usr]['balance']} Credits`", parse_mode="Markdown")
+                    bot.send_message(int(target_usr), f"🎉 **Congratulations!**\nAdmin has gifted you **+{added_amount} Credits**!\nNew Balance: `{data['users'][target_usr]['balance']} Credits`", parse_mode="Markdown")
                 except Exception:
                     pass
 
                 bot.send_message(user_id, f"✅ Successfully updated balance for user `{target_usr}`. New Balance: `{data['users'][target_usr]['balance']} Credits`", parse_mode="Markdown", reply_markup=get_bottom_menu_keyboard(user_id))
             except Exception as e:
-                bot.send_message(user_id, f"❌ Error: {e}")
+                bot.send_message(user_id, f"❌ Error: {e}", reply_markup=get_bottom_menu_keyboard(user_id))
             return
 
         elif state_data == "TIMER_SET_TEXT":
             user_states[user_id] = {"mode": "TIMER_SET_INTERVAL", "text": text}
-            bot.send_message(user_id, "⏱️ **Step 2:** How many **Minutes** gap between each message? (e.g. `60` for 1 hour, `120` for 2 hours):", parse_mode="Markdown")
+            bot.send_message(user_id, "⏱️ **Step 2:** How much gap between each message? (e.g. `10 minutes`, `1 hour`, `120 mins` or `60`):", parse_mode="Markdown")
             return
 
         elif isinstance(state_data, dict) and state_data.get("mode") == "TIMER_SET_INTERVAL":
-            if text.isdigit() and int(text) > 0:
-                mins = int(text)
+            parsed_mins = parse_time_input(text)
+            if parsed_mins and parsed_mins > 0:
                 msg_text = state_data["text"]
                 data.setdefault("scheduler", {})
-                data["scheduler"]["interval_min"] = mins
+                data["scheduler"]["interval_min"] = parsed_mins
                 data["scheduler"]["text"] = msg_text
                 data["scheduler"]["enabled"] = True
                 save_data(data)
                 user_states.pop(user_id, None)
-                bot.send_message(user_id, f"✅ **Auto Timer Activated Successfully!**\n⏱ Interval: Every `{mins}` minutes\n📝 Text:\n{msg_text}", reply_markup=get_bottom_menu_keyboard(user_id), parse_mode="Markdown")
+                
+                markup = types.InlineKeyboardMarkup()
+                markup.add(
+                    types.InlineKeyboardButton("🌐 All", callback_data="set_timer_target_all"),
+                    types.InlineKeyboardButton("👥 Groups Only", callback_data="set_timer_target_groups"),
+                    types.InlineKeyboardButton("👤 Users Only", callback_data="set_timer_target_users")
+                )
+                bot.send_message(user_id, f"✅ **Auto Timer Activated!**\n⏱ Interval: Every `{parsed_mins}` minutes\n📝 Text:\n{msg_text}\n\n👇 **Select Broadcast Target:**", reply_markup=markup, parse_mode="Markdown")
             else:
-                bot.send_message(user_id, "⚠️ Please enter a valid number of minutes (e.g., 30, 60, 120).")
+                bot.send_message(user_id, "⚠️ Invalid format! Please type like `10 minutes`, `1 hour`, or numbers like `30`:")
             return
 
         elif state_data == "ADMIN_SET_QR":
@@ -769,9 +872,10 @@ def handle_all_messages(message):
             return
 
         elif state_data == "ADMIN_ADD_ADMIN":
+            found_key = find_user_key(text)
             user_states.pop(user_id, None)
-            if text.isdigit():
-                new_adm = int(text)
+            if found_key:
+                new_adm = int(found_key)
                 if new_adm not in data["admins"]:
                     data["admins"].append(new_adm)
                     save_data(data)
@@ -779,7 +883,7 @@ def handle_all_messages(message):
                 else:
                     bot.send_message(user_id, "⚠️ User is already an admin.", reply_markup=get_bottom_menu_keyboard(user_id))
             else:
-                bot.send_message(user_id, "❌ Invalid User ID. Must be numeric.", reply_markup=get_bottom_menu_keyboard(user_id))
+                bot.send_message(user_id, "❌ User not found in database.", reply_markup=get_bottom_menu_keyboard(user_id))
             return
 
         elif state_data == "ADMIN_BROADCAST":
@@ -823,6 +927,7 @@ def handle_all_messages(message):
                     bot.send_message(user_id, f"❌ Failed to send: {e}")
                 return
 
+    # Feedback Handler
     if user_id in user_states and isinstance(user_states[user_id], dict) and user_states[user_id].get("mode") == "WAITING_FEEDBACK_TEXT":
         rating = user_states[user_id]["rating"]
         user_states.pop(user_id, None)
@@ -846,6 +951,25 @@ def handle_all_messages(message):
                 pass
                 
         bot.send_message(user_id, "❤️ **Thank you for your valuable feedback!**", reply_markup=get_bottom_menu_keyboard(user_id), parse_mode="Markdown")
+        return
+
+    # Direct Reply To Admin (No length restrictions)
+    if user_id in user_states and user_states[user_id] == "AWAITING_ADMIN_REPLY_INPUT":
+        user_states.pop(user_id, None)
+        user_card = format_user_card(message.from_user, user_id)
+        report_card = (
+            f"💬 **User Reply to Admin:**\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"{user_card}\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"📩 **Message:**\n{text}"
+        )
+        for admin in data.get("admins", SUPER_ADMINS):
+            try:
+                bot.send_message(admin, report_card, reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
+            except Exception:
+                pass
+        bot.send_message(user_id, "✔ **Your reply has been sent to Admin!**", reply_markup=get_bottom_menu_keyboard(user_id), parse_mode="Markdown")
         return
 
     if not is_subscribed(user_id):
