@@ -12,7 +12,7 @@ BOT_TOKEN = "8950259719:AAGW4Bf5vXmFBO6VaVSGedl1LgjHoLO5U-k"
 CHECK_INTERVAL_SECONDS = 25
 DB_FILE = "dual_tracker_db.json"
 
-# Media URLs
+# Visual GIFs
 MONITORING_GIF = "https://media.giphy.com/media/3o7TKTDnUxE0g2fSE8/giphy.gif"
 UNBANNED_GIF = "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif"
 BANNED_GIF = "https://media.giphy.com/media/l2YWg3f6m0tI7Ff2w/giphy.gif"
@@ -71,60 +71,43 @@ def format_time_taken(seconds_elapsed):
     parts.append(f"{seconds}s")
     return " ".join(parts) if parts else "0s"
 
-# ----------------- 100% BULLETPROOF LIVE CHECKER -----------------
+# ----------------- PUBLIC MIRROR CHECKER (NO IP BLOCK) -----------------
 def is_instagram_active(username):
     username = username.strip().lower().replace("@", "")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9"
+    }
 
-    # Layer 1: Instagram Official Search Gateway (Bypasses Session Restrictions)
+    # Gateway 1: Imginn CDN Network
     try:
-        search_url = f"https://www.instagram.com/web/search/topsearch/?context=blended&query={username}&include_reel=false"
-        s_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-            "Accept": "*/*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "x-ig-app-id": "936619743392459"
-        }
-        res = requests.get(search_url, headers=s_headers, timeout=6)
-        if res.status_code == 200:
-            users_list = res.json().get("users", [])
-            for item in users_list:
-                u_obj = item.get("user", {})
-                if u_obj.get("username", "").lower() == username:
-                    return True
-    except Exception:
-        pass
-
-    # Layer 2: Public Embed Resolver (Fast & Zero Rate-Limit)
-    try:
-        embed_url = f"https://www.instagram.com/{username}/embed/captioned/"
-        e_headers = {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
-        }
-        r = requests.get(embed_url, headers=e_headers, timeout=6)
-        if r.status_code == 200:
-            content = r.text.lower()
-            if "watch on instagram" in content or "view profile" in content or f"instagram.com/{username}" in content:
+        r1 = requests.get(f"https://imginn.com/{username}/", headers=headers, timeout=6)
+        if r1.status_code == 200:
+            if "user not found" not in r1.text.lower():
                 return True
-        elif r.status_code == 404:
+        elif r1.status_code == 404:
             return False
     except Exception:
         pass
 
-    # Layer 3: Direct Web Profile Query
+    # Gateway 2: Pixwox Gateway
     try:
-        web_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
-        w_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-            "x-ig-app-id": "936619743392459",
-            "Referer": f"https://www.instagram.com/{username}/"
-        }
-        w_res = requests.get(web_url, headers=w_headers, timeout=6)
-        if w_res.status_code == 200:
-            user_data = w_res.json().get("data", {}).get("user")
-            if user_data is not None and user_data.get("id"):
+        r2 = requests.get(f"https://www.pixwox.com/profile/{username}/", headers=headers, timeout=6)
+        if r2.status_code == 200:
+            if "not found" not in r2.text.lower() and f"@{username}" in r2.text.lower():
                 return True
+        elif r2.status_code == 404:
             return False
-        elif w_res.status_code == 404:
+    except Exception:
+        pass
+
+    # Gateway 3: Dumpoir Public Proxy
+    try:
+        r3 = requests.get(f"https://dumpoir.com/v/{username}", headers=headers, timeout=6)
+        if r3.status_code == 200:
+            if "user not found" not in r3.text.lower():
+                return True
+        elif r3.status_code == 404:
             return False
     except Exception:
         pass
@@ -135,7 +118,7 @@ def is_instagram_active(username):
 def monitor_loop():
     while True:
         try:
-            # 1. Unban (/ub) Check
+            # 1. Check Unban Targets
             unban_list = list(db.get("unban_monitors", {}).items())
             for username, info in unban_list:
                 if is_instagram_active(username):
@@ -172,7 +155,7 @@ def monitor_loop():
 
                 time.sleep(2)
 
-            # 2. Ban (/b) Check
+            # 2. Check Ban Targets
             ban_list = list(db.get("ban_monitors", {}).items())
             for username, info in ban_list:
                 if not is_instagram_active(username):
@@ -211,19 +194,18 @@ def monitor_loop():
 
             time.sleep(CHECK_INTERVAL_SECONDS)
         except Exception as e:
-            print(f"Loop error: {e}")
+            print(f"Monitor error: {e}")
             time.sleep(10)
 
 threading.Thread(target=monitor_loop, daemon=True).start()
 
-# ----------------- HELPER FUNCTIONS -----------------
 def extract_username(message):
     args = message.text.split()
     if len(args) < 2:
         return None
     return args[1].strip().replace("@", "").lower()
 
-# ----------------- COMMAND: /start -----------------
+# ----------------- COMMAND HANDLERS -----------------
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     user_id = message.from_user.id
@@ -244,19 +226,17 @@ def handle_start(message):
     )
     bot.reply_to(message, welcome_text)
 
-# ----------------- COMMAND: /ub -----------------
 @bot.message_handler(commands=['ub', 'unban', 'm'])
 def handle_unban_request(message):
     username = extract_username(message)
     if not username:
-        bot.reply_to(message, "⚠️ <b>Usage:</b> <code>/ub username</code>\n<b>Example:</b> <code>/ub hers_vivek</code>")
+        bot.reply_to(message, "⚠️ <b>Usage:</b> <code>/ub username</code>\n<b>Example:</b> <code>/ub fvowl</code>")
         return
 
     if username in db.get("unban_monitors", {}):
         bot.reply_to(message, f"ℹ️ <b>@{username}</b> is already in the unban monitoring list.")
         return
 
-    # Real-time verification
     if is_instagram_active(username):
         bot.reply_to(message, f"⚠️ <b>Request Denied:</b> <b>@{username}</b> is already <b>Active / Unbanned</b> on Instagram.")
         return
@@ -286,7 +266,6 @@ def handle_unban_request(message):
     except Exception:
         bot.send_message(chat_id=message.chat.id, text=caption, reply_to_message_id=message.message_id)
 
-# ----------------- COMMAND: /b -----------------
 @bot.message_handler(commands=['b', 'ban'])
 def handle_ban_request(message):
     username = extract_username(message)
@@ -298,7 +277,6 @@ def handle_ban_request(message):
         bot.reply_to(message, f"ℹ️ <b>@{username}</b> is already in the ban monitoring list.")
         return
 
-    # Real-time verification
     if not is_instagram_active(username):
         bot.reply_to(message, f"⚠️ <b>Request Denied:</b> <b>@{username}</b> is already <b>Banned / Unavailable</b> on Instagram.")
         return
@@ -328,7 +306,6 @@ def handle_ban_request(message):
     except Exception:
         bot.send_message(chat_id=message.chat.id, text=caption, reply_to_message_id=message.message_id)
 
-# ----------------- COMMAND: /status -----------------
 @bot.message_handler(commands=['status', 's'])
 def handle_status(message):
     unbans = db.get("unban_monitors", {})
@@ -353,15 +330,14 @@ def handle_status(message):
 
     bot.reply_to(message, "\n".join(lines))
 
-# ----------------- COMMAND: /help -----------------
 @bot.message_handler(commands=['help', 'h'])
 def handle_help(message):
     help_text = (
         "⚙️ <b>Bot Help & Command Guide:</b>\n\n"
-        "• <code>/ub &lt;username&gt;</code> — Set an unban monitor. Alerts when account comes back online.\n"
-        "• <code>/b &lt;username&gt;</code> — Set a ban monitor. Alerts when account gets banned.\n"
+        "• <code>/ub &lt;username&gt;</code> — Set an unban monitor. The bot alerts when the account comes back online.\n"
+        "• <code>/b &lt;username&gt;</code> — Set a ban monitor. The bot alerts when the account gets banned.\n"
         "• <code>/status</code> — Check all active monitors.\n"
-        "• <code>/help</code> — Show this guide."
+        "• <code>/help</code> — Show this help message."
     )
     bot.reply_to(message, help_text)
 
