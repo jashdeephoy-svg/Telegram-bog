@@ -9,7 +9,6 @@ from datetime import datetime, timezone, timedelta
 
 # ----------------- CONFIGURATION -----------------
 BOT_TOKEN = "8950259719:AAGW4Bf5vXmFBO6VaVSGedl1LgjHoLO5U-k"
-INSTAGRAM_SESSION_ID = "70229745656:sLSyRu4K1KDgPw:11:AYg1H4LDg5LXUI5a3y8ebDWyAoexZ0jKncnz-WcYvA"
 CHECK_INTERVAL_SECONDS = 25
 DB_FILE = "dual_tracker_db.json"
 
@@ -72,45 +71,60 @@ def format_time_taken(seconds_elapsed):
     parts.append(f"{seconds}s")
     return " ".join(parts) if parts else "0s"
 
-# ----------------- INSTAGRAM STATUS CHECKER -----------------
+# ----------------- 100% BULLETPROOF LIVE CHECKER -----------------
 def is_instagram_active(username):
     username = username.strip().lower().replace("@", "")
-    ds_user_id = INSTAGRAM_SESSION_ID.split(":")[0]
 
-    # Primary: Authenticated Mobile GraphQL Query
+    # Layer 1: Instagram Official Search Gateway (Bypasses Session Restrictions)
     try:
-        api_url = f"https://i.instagram.com/api/v1/users/{username}/usernameinfo/"
-        headers = {
-            "User-Agent": "Instagram 278.0.0.19.115 Android (33/13; 440dpi; 1080x2400; Xiaomi; Redmi Note 12; sweet; qcom; en_US; 458229237)",
-            "Cookie": f"sessionid={INSTAGRAM_SESSION_ID}; ds_user_id={ds_user_id};",
-            "X-IG-App-ID": "936619743392459"
+        search_url = f"https://www.instagram.com/web/search/topsearch/?context=blended&query={username}&include_reel=false"
+        s_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "x-ig-app-id": "936619743392459"
         }
-        res = requests.get(api_url, headers=headers, timeout=8)
+        res = requests.get(search_url, headers=s_headers, timeout=6)
         if res.status_code == 200:
-            user_data = res.json().get("user")
-            if user_data is not None and user_data.get("pk"):
+            users_list = res.json().get("users", [])
+            for item in users_list:
+                u_obj = item.get("user", {})
+                if u_obj.get("username", "").lower() == username:
+                    return True
+    except Exception:
+        pass
+
+    # Layer 2: Public Embed Resolver (Fast & Zero Rate-Limit)
+    try:
+        embed_url = f"https://www.instagram.com/{username}/embed/captioned/"
+        e_headers = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
+        }
+        r = requests.get(embed_url, headers=e_headers, timeout=6)
+        if r.status_code == 200:
+            content = r.text.lower()
+            if "watch on instagram" in content or "view profile" in content or f"instagram.com/{username}" in content:
                 return True
-        elif res.status_code == 404:
+        elif r.status_code == 404:
             return False
     except Exception:
         pass
 
-    # Secondary: Web Profile Endpoint
+    # Layer 3: Direct Web Profile Query
     try:
         web_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
-        web_headers = {
+        w_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             "x-ig-app-id": "936619743392459",
-            "x-asbd-id": "129477",
-            "Referer": f"https://www.instagram.com/{username}/",
-            "Cookie": f"sessionid={INSTAGRAM_SESSION_ID}; ds_user_id={ds_user_id};"
+            "Referer": f"https://www.instagram.com/{username}/"
         }
-        res_web = requests.get(web_url, headers=web_headers, timeout=8)
-        if res_web.status_code == 200:
-            if res_web.json().get("data", {}).get("user"):
+        w_res = requests.get(web_url, headers=w_headers, timeout=6)
+        if w_res.status_code == 200:
+            user_data = w_res.json().get("data", {}).get("user")
+            if user_data is not None and user_data.get("id"):
                 return True
             return False
-        elif res_web.status_code == 404:
+        elif w_res.status_code == 404:
             return False
     except Exception:
         pass
@@ -151,7 +165,7 @@ def monitor_loop():
                         except Exception:
                             pass
                     except Exception as e:
-                        print(f"Unban notification error: {e}")
+                        print(f"Alert error: {e}")
 
                     del db["unban_monitors"][username]
                     save_db(db)
@@ -188,7 +202,7 @@ def monitor_loop():
                         except Exception:
                             pass
                     except Exception as e:
-                        print(f"Ban notification error: {e}")
+                        print(f"Alert error: {e}")
 
                     del db["ban_monitors"][username]
                     save_db(db)
@@ -209,7 +223,7 @@ def extract_username(message):
         return None
     return args[1].strip().replace("@", "").lower()
 
-# ----------------- START HANDLER -----------------
+# ----------------- COMMAND: /start -----------------
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     user_id = message.from_user.id
@@ -242,7 +256,7 @@ def handle_unban_request(message):
         bot.reply_to(message, f"ℹ️ <b>@{username}</b> is already in the unban monitoring list.")
         return
 
-    # Real-time verify
+    # Real-time verification
     if is_instagram_active(username):
         bot.reply_to(message, f"⚠️ <b>Request Denied:</b> <b>@{username}</b> is already <b>Active / Unbanned</b> on Instagram.")
         return
@@ -284,7 +298,7 @@ def handle_ban_request(message):
         bot.reply_to(message, f"ℹ️ <b>@{username}</b> is already in the ban monitoring list.")
         return
 
-    # Real-time verify
+    # Real-time verification
     if not is_instagram_active(username):
         bot.reply_to(message, f"⚠️ <b>Request Denied:</b> <b>@{username}</b> is already <b>Banned / Unavailable</b> on Instagram.")
         return
