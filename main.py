@@ -9,11 +9,11 @@ from datetime import datetime, timezone, timedelta
 
 # ----------------- CONFIGURATION -----------------
 BOT_TOKEN = "8950259719:AAGW4Bf5vXmFBO6VaVSGedl1LgjHoLO5U-k"
-INSTAGRAM_SESSION_ID = "42089138151%3AOzkb4rcxZrb8rl%3A13%3AAYim1Ljg9xf9zS5bNS61BTUbmzgjjeAZjBYjDvuqNQ"
+INSTAGRAM_SESSION_ID = "70229745656:sLSyRu4K1KDgPw:11:AYg1H4LDg5LXUI5a3y8ebDWyAoexZ0jKncnz-WcYvA"
 CHECK_INTERVAL_SECONDS = 25
 DB_FILE = "dual_tracker_db.json"
 
-# Visual GIFs
+# Media URLs
 MONITORING_GIF = "https://media.giphy.com/media/3o7TKTDnUxE0g2fSE8/giphy.gif"
 UNBANNED_GIF = "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif"
 BANNED_GIF = "https://media.giphy.com/media/l2YWg3f6m0tI7Ff2w/giphy.gif"
@@ -21,16 +21,15 @@ BANNED_GIF = "https://media.giphy.com/media/l2YWg3f6m0tI7Ff2w/giphy.gif"
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
-# Telegram Auto Commands Menu Setup
 try:
     bot.set_my_commands([
         types.BotCommand("ub", "Monitor account for recovery / unban"),
         types.BotCommand("b", "Monitor account for ban"),
         types.BotCommand("status", "Show active monitored accounts"),
-        types.BotCommand("help", "Help & command guide")
+        types.BotCommand("help", "Help & guide")
     ])
-except Exception as e:
-    print(f"Command setup notice: {e}")
+except Exception:
+    pass
 
 # ----------------- DATABASE HELPERS -----------------
 def load_db():
@@ -73,40 +72,56 @@ def format_time_taken(seconds_elapsed):
     parts.append(f"{seconds}s")
     return " ".join(parts) if parts else "0s"
 
-# ----------------- 100% ACCURATE AUTHENTICATED CHECKER -----------------
+# ----------------- INSTAGRAM STATUS CHECKER -----------------
 def is_instagram_active(username):
     username = username.strip().lower().replace("@", "")
-    
-    url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        "x-ig-app-id": "936619743392459",
-        "x-asbd-id": "129477",
-        "x-requested-with": "XMLHttpRequest",
-        "Referer": f"https://www.instagram.com/{username}/",
-        "Cookie": f"sessionid={INSTAGRAM_SESSION_ID};"
-    }
+    ds_user_id = INSTAGRAM_SESSION_ID.split(":")[0]
 
+    # Primary: Authenticated Mobile GraphQL Query
     try:
-        res = requests.get(url, headers=headers, timeout=10)
+        api_url = f"https://i.instagram.com/api/v1/users/{username}/usernameinfo/"
+        headers = {
+            "User-Agent": "Instagram 278.0.0.19.115 Android (33/13; 440dpi; 1080x2400; Xiaomi; Redmi Note 12; sweet; qcom; en_US; 458229237)",
+            "Cookie": f"sessionid={INSTAGRAM_SESSION_ID}; ds_user_id={ds_user_id};",
+            "X-IG-App-ID": "936619743392459"
+        }
+        res = requests.get(api_url, headers=headers, timeout=8)
         if res.status_code == 200:
-            data = res.json()
-            user_info = data.get("data", {}).get("user")
-            if user_info is not None and user_info.get("id"):
+            user_data = res.json().get("user")
+            if user_data is not None and user_data.get("pk"):
                 return True
-            return False
         elif res.status_code == 404:
             return False
-        else:
+    except Exception:
+        pass
+
+    # Secondary: Web Profile Endpoint
+    try:
+        web_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
+        web_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "x-ig-app-id": "936619743392459",
+            "x-asbd-id": "129477",
+            "Referer": f"https://www.instagram.com/{username}/",
+            "Cookie": f"sessionid={INSTAGRAM_SESSION_ID}; ds_user_id={ds_user_id};"
+        }
+        res_web = requests.get(web_url, headers=web_headers, timeout=8)
+        if res_web.status_code == 200:
+            if res_web.json().get("data", {}).get("user"):
+                return True
+            return False
+        elif res_web.status_code == 404:
             return False
     except Exception:
-        return False
+        pass
+
+    return False
 
 # ----------------- BACKGROUND MONITOR LOOP -----------------
 def monitor_loop():
     while True:
         try:
-            # 1. Unban / Recovery Monitoring (/ub)
+            # 1. Unban (/ub) Check
             unban_list = list(db.get("unban_monitors", {}).items())
             for username, info in unban_list:
                 if is_instagram_active(username):
@@ -136,14 +151,14 @@ def monitor_loop():
                         except Exception:
                             pass
                     except Exception as e:
-                        print(f"Alert error: {e}")
+                        print(f"Unban notification error: {e}")
 
                     del db["unban_monitors"][username]
                     save_db(db)
 
                 time.sleep(2)
 
-            # 2. Ban Monitoring (/b)
+            # 2. Ban (/b) Check
             ban_list = list(db.get("ban_monitors", {}).items())
             for username, info in ban_list:
                 if not is_instagram_active(username):
@@ -173,7 +188,7 @@ def monitor_loop():
                         except Exception:
                             pass
                     except Exception as e:
-                        print(f"Alert error: {e}")
+                        print(f"Ban notification error: {e}")
 
                     del db["ban_monitors"][username]
                     save_db(db)
@@ -182,7 +197,7 @@ def monitor_loop():
 
             time.sleep(CHECK_INTERVAL_SECONDS)
         except Exception as e:
-            print(f"Monitoring loop error: {e}")
+            print(f"Loop error: {e}")
             time.sleep(10)
 
 threading.Thread(target=monitor_loop, daemon=True).start()
@@ -194,7 +209,7 @@ def extract_username(message):
         return None
     return args[1].strip().replace("@", "").lower()
 
-# ----------------- START HANDLER (DM) -----------------
+# ----------------- START HANDLER -----------------
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     user_id = message.from_user.id
@@ -211,13 +226,11 @@ def handle_start(message):
         f"• <code>/ub &lt;username&gt;</code> — Monitor account for recovery / unban\n"
         f"• <code>/b &lt;username&gt;</code> — Monitor account for ban\n"
         f"• <code>/status</code> — View active monitored accounts\n"
-        f"• <code>/help</code> — Bot instructions & guide\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"⚡ <i>Add this bot to your group and give admin access to receive instant alerts!</i>"
+        f"• <code>/help</code> — Bot instructions & guide"
     )
     bot.reply_to(message, welcome_text)
 
-# ----------------- COMMAND: /ub (UNBAN MONITOR) -----------------
+# ----------------- COMMAND: /ub -----------------
 @bot.message_handler(commands=['ub', 'unban', 'm'])
 def handle_unban_request(message):
     username = extract_username(message)
@@ -229,6 +242,7 @@ def handle_unban_request(message):
         bot.reply_to(message, f"ℹ️ <b>@{username}</b> is already in the unban monitoring list.")
         return
 
+    # Real-time verify
     if is_instagram_active(username):
         bot.reply_to(message, f"⚠️ <b>Request Denied:</b> <b>@{username}</b> is already <b>Active / Unbanned</b> on Instagram.")
         return
@@ -258,7 +272,7 @@ def handle_unban_request(message):
     except Exception:
         bot.send_message(chat_id=message.chat.id, text=caption, reply_to_message_id=message.message_id)
 
-# ----------------- COMMAND: /b (BAN MONITOR) -----------------
+# ----------------- COMMAND: /b -----------------
 @bot.message_handler(commands=['b', 'ban'])
 def handle_ban_request(message):
     username = extract_username(message)
@@ -270,6 +284,7 @@ def handle_ban_request(message):
         bot.reply_to(message, f"ℹ️ <b>@{username}</b> is already in the ban monitoring list.")
         return
 
+    # Real-time verify
     if not is_instagram_active(username):
         bot.reply_to(message, f"⚠️ <b>Request Denied:</b> <b>@{username}</b> is already <b>Banned / Unavailable</b> on Instagram.")
         return
