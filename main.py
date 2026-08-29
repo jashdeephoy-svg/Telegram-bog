@@ -53,32 +53,6 @@ def self_ping():
 
 threading.Thread(target=self_ping, daemon=True).start()
 
-DEFAULT_TEXTS = {
-    "btn_announcement": "Join Announcement Channel",
-    "btn_helpline": "24x7 consumer helpline",
-    "btn_work": "Work with us",
-    "btn_mail": "Mail create",
-    "btn_balance": "💰 My Balance",
-    "btn_referrals": "👥 Referrals",
-    "btn_rating": "⭐ Rating / Feedback",
-    "btn_help": "⚙️ Help",
-    "msg_welcome": (
-        "🚀 **WELCOME TO GMAIL PORTAL** 🚀\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "⚡ **Looking for Premium & Fresh Gmail Accounts?**\n"
-        "We provide 100% genuine accounts created on real devices with trusted warranty.\n\n"
-        "💎 **Why Choose Us?**\n"
-        "• 100% Real Device Creation\n"
-        "• Zero Panel / No Cheap Bots\n"
-        "• Bulk Orders Accepted\n"
-        "• Fast Delivery & 24/7 Support\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "⚠️ **Note:** You must join all channels below to access this bot."
-    ),
-    "msg_mail_header": "per mail 40 inr after payment your mail will be created",
-    "msg_mail_send_ss": "[📋]\n𝗦𝗘𝗡𝗗  𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗦𝗦 𝗔𝗡𝗗 𝗪𝗜𝗧𝗛 𝗖𝗟𝗘𝗔𝗥 𝗦𝗛𝗢𝗪𝗜𝗡𝗚 𝗧𝗥𝗔𝗡𝗦𝗔𝗖𝗧𝗜𝗢𝗡 𝗜𝗗 𝗔𝗡𝗗 𝗡𝗔𝗠𝗘 😇"
-}
-
 def load_data():
     default_db = {
         "users": {},
@@ -87,7 +61,6 @@ def load_data():
         "banned": [],
         "qr_file_id": None,
         "qr_locked": True,
-        "custom_texts": DEFAULT_TEXTS,
         "settings": {
             "maintenance": False,
             "new_user_notify": True
@@ -107,8 +80,6 @@ def load_data():
                 for k, v in default_db.items():
                     if k not in d:
                         d[k] = v
-                if "custom_texts" not in d:
-                    d["custom_texts"] = DEFAULT_TEXTS
                 return d
         except Exception:
             pass
@@ -125,6 +96,7 @@ data = load_data()
 user_states = {}
 processing_timers = {}
 
+# Clean Luck Draw Tickets (Without showing chance % to users)
 REDEEM_TICKETS = [
     {"code": "Freezgmail1", "chance": 30, "msg": "🎉 **CONGRATS!**\nYOU GOT A FREE 2 GMAIL CREATION TICKET!"},
     {"code": "nex&time2", "chance": 90, "msg": "😔 **SORRY NEXT TIME!**"},
@@ -167,8 +139,19 @@ def auto_scheduler_loop():
 
 threading.Thread(target=auto_scheduler_loop, daemon=True).start()
 
-def get_text(key):
-    return data.get("custom_texts", {}).get(key, DEFAULT_TEXTS.get(key, ""))
+MENU_BUTTONS = [
+    "Join Announcement Channel",
+    "24x7 consumer helpline",
+    "Work with us",
+    "Mail create",
+    "💰 My Balance",
+    "👥 Referrals",
+    "⭐ Rating / Feedback",
+    "⚙️ Help",
+    "🛠️ Admin Panel",
+    "🚫 Cancel",
+    "❌ Cancel"
+]
 
 def is_admin(user_id):
     return user_id in data.get("admins", SUPER_ADMINS) or user_id in SUPER_ADMINS
@@ -243,14 +226,14 @@ def get_force_join_keyboard():
 
 def get_bottom_menu_keyboard(user_id):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn_announcement = types.KeyboardButton(get_text("btn_announcement"))
-    btn_helpline = types.KeyboardButton(get_text("btn_helpline"))
-    btn_work = types.KeyboardButton(get_text("btn_work"))
-    btn_mail = types.KeyboardButton(get_text("btn_mail"))
-    btn_balance = types.KeyboardButton(get_text("btn_balance"))
-    btn_referrals = types.KeyboardButton(get_text("btn_referrals"))
-    btn_rating = types.KeyboardButton(get_text("btn_rating"))
-    btn_help = types.KeyboardButton(get_text("btn_help"))
+    btn_announcement = types.KeyboardButton("Join Announcement Channel")
+    btn_helpline = types.KeyboardButton("24x7 consumer helpline")
+    btn_work = types.KeyboardButton("Work with us")
+    btn_mail = types.KeyboardButton("Mail create")
+    btn_balance = types.KeyboardButton("💰 My Balance")
+    btn_referrals = types.KeyboardButton("👥 Referrals")
+    btn_rating = types.KeyboardButton("⭐ Rating / Feedback")
+    btn_help = types.KeyboardButton("⚙️ Help")
     
     markup.row(btn_announcement)
     markup.row(btn_helpline)
@@ -266,12 +249,15 @@ def get_bottom_menu_keyboard(user_id):
 
 def get_balance_options_keyboard(user_id):
     markup = types.InlineKeyboardMarkup(row_width=1)
-    tag = " (Admin Free Test)" if is_admin(user_id) else ""
-    b1 = types.InlineKeyboardButton(f"📧 Redeem Free Gmail (10 Credits){tag}", callback_data="use_cred_gmail")
-    b2 = types.InlineKeyboardButton(f"✉️ Redeem Free Outlook Mail (5 Credits){tag}", callback_data="use_cred_outlook")
-    b3 = types.InlineKeyboardButton(f"🔍 Number Details Search (1 Credit){tag}", callback_data="use_cred_numdet")
-    b4 = types.InlineKeyboardButton(f"🎟️ Buy Lucky Redeem Ticket (10 Credits){tag}", callback_data="use_cred_ticket")
-    markup.add(b1, b2, b3, b4)
+    if is_admin(user_id):
+        b1 = types.InlineKeyboardButton("🛠️ Admin Balance View (All OK)", callback_data="admin_bal_info")
+        markup.add(b1)
+    else:
+        b1 = types.InlineKeyboardButton("📧 Redeem Free Gmail (10 Credits)", callback_data="use_cred_gmail")
+        b2 = types.InlineKeyboardButton("✉️ Redeem Free Outlook Mail (5 Credits)", callback_data="use_cred_outlook")
+        b3 = types.InlineKeyboardButton("🔍 Number Details Search (1 Credit)", callback_data="use_cred_numdet")
+        b4 = types.InlineKeyboardButton("🎟️ Buy Lucky Redeem Ticket (10 Credits)", callback_data="use_cred_ticket")
+        markup.add(b1, b2, b3, b4)
     return markup
 
 def get_admin_panel_inline():
@@ -281,36 +267,19 @@ def get_admin_panel_inline():
     s_state = "🟢 ON" if data.get("scheduler", {}).get("enabled") else "⚪ OFF"
     qr_state = "🟢 LOCKED" if data.get("qr_locked", True) else "🔓 UNLOCKED"
     
-    btn1 = types.InlineKeyboardButton("📨 Broadcast", callback_data="adm_cmd_mail")
+    btn1 = types.InlineKeyboardButton("📨 Mailing / Broadcast", callback_data="adm_cmd_mail")
     btn2 = types.InlineKeyboardButton("📊 Statistics", callback_data="adm_cmd_stats")
-    btn3 = types.InlineKeyboardButton(f"🛠️ Maint ({m_state})", callback_data="adm_cmd_toggle_maint")
-    btn4 = types.InlineKeyboardButton(f"👤 Notify ({n_state})", callback_data="adm_cmd_toggle_notify")
+    btn3 = types.InlineKeyboardButton(f"🛠️ Maintenance ({m_state})", callback_data="adm_cmd_toggle_maint")
+    btn4 = types.InlineKeyboardButton(f"👤 New User Notify ({n_state})", callback_data="adm_cmd_toggle_notify")
     btn5 = types.InlineKeyboardButton(f"🔒 QR Lock ({qr_state})", callback_data="adm_cmd_toggle_qrlock")
-    btn6 = types.InlineKeyboardButton("🔄 Change QR", callback_data="adm_cmd_update_qr")
+    btn6 = types.InlineKeyboardButton("🔄 Change QR Code", callback_data="adm_cmd_update_qr")
     btn7 = types.InlineKeyboardButton("👥 Manage Admins", callback_data="adm_cmd_manage_admins")
-    btn8 = types.InlineKeyboardButton(f"⏰ Auto Timer ({s_state})", callback_data="adm_cmd_auto_timer")
-    btn9 = types.InlineKeyboardButton("🎛️ Button & Text Manager", callback_data="adm_cmd_btn_manager")
+    btn8 = types.InlineKeyboardButton(f"⏰ Auto Timer Msg ({s_state})", callback_data="adm_cmd_auto_timer")
     
     markup.add(btn1, btn2)
     markup.add(btn3, btn4)
     markup.add(btn5, btn6)
     markup.add(btn7, btn8)
-    markup.add(btn9)
-    return markup
-
-def get_btn_manager_keyboard():
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    b1 = types.InlineKeyboardButton("✏️ Announcement Btn", callback_data="edit_txt_btn_announcement")
-    b2 = types.InlineKeyboardButton("✏️ Helpline Btn", callback_data="edit_txt_btn_helpline")
-    b3 = types.InlineKeyboardButton("✏️ Work With Us Btn", callback_data="edit_txt_btn_work")
-    b4 = types.InlineKeyboardButton("✏️ Mail Create Btn", callback_data="edit_txt_btn_mail")
-    b5 = types.InlineKeyboardButton("✏️ Balance Btn", callback_data="edit_txt_btn_balance")
-    b6 = types.InlineKeyboardButton("✏️ Referrals Btn", callback_data="edit_txt_btn_referrals")
-    b7 = types.InlineKeyboardButton("✏️ Welcome Message", callback_data="edit_txt_msg_welcome")
-    b8 = types.InlineKeyboardButton("✏️ Payment Header", callback_data="edit_txt_msg_mail_header")
-    b9 = types.InlineKeyboardButton("🔙 Back to Admin", callback_data="adm_back_panel")
-    markup.add(b1, b2, b3, b4, b5, b6, b7, b8)
-    markup.add(b9)
     return markup
 
 def get_admin_action_keyboard(target_id):
@@ -352,9 +321,23 @@ def send_delayed_give_hit(target_id):
     cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
     try:
-        bot.send_message(target_id, "𝗚𝗜𝗩𝗘 𝗛𝗜𝗧 𝗢𝗥 𝗠𝗔𝗜𝗟 𝗔𝗡𝗗 𝙔𝙊𝙐𝙍 𝗣𝗔𝗦𝗦", reply_markup=cancel_kb)
+        bot.send_message(target_id, "𝗚𝗜𝗩𝗘 𝗛𝗜𝗧 𝗢𝗥 𝗠𝗔𝗜𝗟 𝗔𝗡𝗗 𝙔O𝙐𝙍 𝗣𝗔𝗦𝗦", reply_markup=cancel_kb)
     except Exception:
         pass
+
+WELCOME_TEXT = (
+    "🚀 **WELCOME TO GMAIL PORTAL** 🚀\n"
+    "━━━━━━━━━━━━━━━━━━━━━━\n"
+    "⚡ **Looking for Premium & Fresh Gmail Accounts?**\n"
+    "We provide 100% genuine accounts created on real devices with trusted warranty.\n\n"
+    "💎 **Why Choose Us?**\n"
+    "• 100% Real Device Creation\n"
+    "• Zero Panel / No Cheap Bots\n"
+    "• Bulk Orders Accepted\n"
+    "• Fast Delivery & 24/7 Support\n"
+    "━━━━━━━━━━━━━━━━━━━━━━\n"
+    "⚠️ **Note:** You must join all channels below to access this bot."
+)
 
 @bot.message_handler(content_types=['new_chat_members'])
 def on_bot_joined_group(message):
@@ -382,7 +365,7 @@ def start_handler(message):
 
     if message.text.startswith('/admin'):
         if is_admin(user_id):
-            bot.send_message(user_id, "🔧 **Administrator Dashboard:**", reply_markup=get_admin_panel_inline(), parse_mode="Markdown")
+            bot.send_message(user_id, "🔧 **You are in the Administrator Dashboard:**", reply_markup=get_admin_panel_inline(), parse_mode="Markdown")
         else:
             bot.send_message(user_id, "❌ Access Denied.")
         return
@@ -397,7 +380,7 @@ def start_handler(message):
     if not is_subscribed(user_id):
         bot.send_message(
             user_id,
-            get_text("msg_welcome"),
+            WELCOME_TEXT,
             reply_markup=get_force_join_keyboard(),
             parse_mode="Markdown"
         )
@@ -443,76 +426,89 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, "❌ Please join all channels first!", show_alert=True)
         return
 
-    # Use Credit Points Redeem Actions (Admin bypasses credit check)
+    if call.data == "admin_bal_info":
+        bot.answer_callback_query(call.id, "✅ Admin Balance View is fully active and functioning correctly for users!", show_alert=True)
+        return
+
+    # Use Credit Points Redeem Actions with Admin Notification & 10-Min Hold message
     if call.data == "use_cred_gmail":
-        if not is_admin(user_id):
-            if user["balance"] < 10:
-                bot.answer_callback_query(call.id, "❌ You need at least 10 Credits!", show_alert=True)
-                return
-            user["balance"] -= 10
-            save_data(data)
-        user_states[user_id] = "AWAITING_CREDENTIALS"
-        cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
-        bot.send_message(user_id, "🎉 **10 Credits Redeemed!**\n\n𝗚𝗜𝗩𝗘 𝗛𝗜𝗧 𝗢𝗥 𝗠𝗔𝗜𝗟 𝗔𝗡𝗗 𝙔𝙊𝙐𝙍 𝗣𝗔𝗦𝗦 for free Gmail creation:", reply_markup=cancel_kb)
-        bot.answer_callback_query(call.id, "Gmail Request Active ✅")
+        if user["balance"] < 10:
+            bot.answer_callback_query(call.id, "❌ You need at least 10 Credits!", show_alert=True)
+            return
+        user["balance"] -= 10
+        save_data(data)
+        
+        user_card = format_user_card(call.from_user, user_id)
+        for adm in data.get("admins", SUPER_ADMINS):
+            try:
+                bot.send_message(adm, f"🎁 **CREDIT USER - Free Gmail Request:**\n{user_card}", reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
+            except Exception:
+                pass
+                
+        bot.send_message(user_id, "Your request has been sent to the moderator. Please hold for 10 minutes.")
+        bot.answer_callback_query(call.id, "10 Credits Redeemed ✅")
         return
 
     elif call.data == "use_cred_outlook":
-        if not is_admin(user_id):
-            if user["balance"] < 5:
-                bot.answer_callback_query(call.id, "❌ You need at least 5 Credits!", show_alert=True)
-                return
-            user["balance"] -= 5
-            save_data(data)
+        if user["balance"] < 5:
+            bot.answer_callback_query(call.id, "❌ You need at least 5 Credits!", show_alert=True)
+            return
+        user["balance"] -= 5
+        save_data(data)
+        
+        user_card = format_user_card(call.from_user, user_id)
         for adm in data.get("admins", SUPER_ADMINS):
             try:
-                bot.send_message(adm, f"✉️ **Outlook Mail Request:**\nUser ID: `{user_id}`\nUsername: @{call.from_user.username or 'None'}")
+                bot.send_message(adm, f"🎁 **CREDIT USER - Outlook Mail Request:**\n{user_card}", reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
             except Exception:
                 pass
-        bot.send_message(user_id, "✅ **5 Credits Redeemed!** Your free Outlook Mail request has been submitted to admin.")
-        bot.answer_callback_query(call.id, "Outlook Request Sent ✅")
+                
+        bot.send_message(user_id, "Your request has been sent to the moderator. Please hold for 10 minutes.")
+        bot.answer_callback_query(call.id, "5 Credits Redeemed ✅")
         return
 
     elif call.data == "use_cred_numdet":
-        if not is_admin(user_id):
-            if user["balance"] < 1:
-                bot.answer_callback_query(call.id, "❌ You need at least 1 Credit!", show_alert=True)
-                return
-            user["balance"] -= 1
-            save_data(data)
-        user_states[user_id] = "AWAITING_SUPPORT_MESSAGE"
-        cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
-        bot.send_message(user_id, "🔍 **1 Credit Redeemed!** Please send the Phone Number you want details for:", reply_markup=cancel_kb)
-        bot.answer_callback_query(call.id, "Number Request Sent ✅")
+        if user["balance"] < 1:
+            bot.answer_callback_query(call.id, "❌ You need at least 1 Credit!", show_alert=True)
+            return
+        user["balance"] -= 1
+        save_data(data)
+        
+        user_card = format_user_card(call.from_user, user_id)
+        for adm in data.get("admins", SUPER_ADMINS):
+            try:
+                bot.send_message(adm, f"🎁 **CREDIT USER - Number Details Request:**\n{user_card}", reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
+            except Exception:
+                pass
+                
+        bot.send_message(user_id, "Your request has been sent to the moderator. Please hold for 10 minutes.")
+        bot.answer_callback_query(call.id, "1 Credit Redeemed ✅")
         return
 
     elif call.data == "use_cred_ticket":
-        if not is_admin(user_id):
-            if user["balance"] < 10:
-                bot.answer_callback_query(call.id, "❌ 10 Credits required for Lucky Redeem Ticket!", show_alert=True)
-                return
-            user["balance"] -= 10
-            save_data(data)
+        if user["balance"] < 10:
+            bot.answer_callback_query(call.id, "❌ 10 Credits required for Lucky Redeem Ticket!", show_alert=True)
+            return
+        user["balance"] -= 10
+        save_data(data)
         
         weights = [t["chance"] for t in REDEEM_TICKETS]
         selected_ticket = random.choices(REDEEM_TICKETS, weights=weights, k=1)[0]
         
+        user_card = format_user_card(call.from_user, user_id)
         for adm in data.get("admins", SUPER_ADMINS):
             try:
-                bot.send_message(adm, f"🎟️ **User Won Lucky Ticket:**\nUser: [`{user_id}`](tg://user?id={user_id})\nTicket: `{selected_ticket['code']}` (Chance: {selected_ticket['chance']}%)", parse_mode="Markdown")
+                bot.send_message(adm, f"🎟️ **CREDIT USER - Lucky Ticket Win:**\n{user_card}\nTicket: `{selected_ticket['code']}`", reply_markup=get_admin_action_keyboard(user_id), parse_mode="Markdown")
             except Exception:
                 pass
 
-        admin_note = f"\n*(Admin Testing Mode - Chance Weight: {selected_ticket['chance']}%)*" if is_admin(user_id) else ""
         result_msg = (
             f"🎟️ **LUCKY REDEEM TICKET RESULT** 🎟️\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🏷️ Ticket: `{selected_ticket['code']}`\n\n"
-            f"{selected_ticket['msg']}{admin_note}\n"
+            f"{selected_ticket['msg']}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💵 Current Balance: `{user['balance']} Credits`"
+            f"💵 Remaining Balance: `{user['balance']} Credits`"
         )
         bot.send_message(user_id, result_msg, parse_mode="Markdown")
         bot.answer_callback_query(call.id, "Ticket Drawn! 🎰")
@@ -536,25 +532,7 @@ def handle_callbacks(call):
 
     # Admin Control Handlers
     if is_admin(user_id):
-        if call.data == "adm_back_panel":
-            bot.edit_message_text("🔧 **Administrator Dashboard:**", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=get_admin_panel_inline(), parse_mode="Markdown")
-            return
-
-        elif call.data == "adm_cmd_btn_manager":
-            bot.edit_message_text("🎛️ **Button & Text Manager:**\nSelect an item to edit its live text in the bot:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=get_btn_manager_keyboard())
-            return
-
-        elif call.data.startswith("edit_txt_"):
-            target_key = call.data.replace("edit_txt_", "")
-            user_states[user_id] = {"mode": "ADMIN_EDITING_TEXT", "key": target_key}
-            cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
-            curr_val = get_text(target_key)
-            bot.send_message(user_id, f"✏️ **Editing `{target_key}`**\n\nCurrent Text:\n`{curr_val}`\n\n👉 Send the **NEW TEXT** for this button/message:", reply_markup=cancel_kb, parse_mode="Markdown")
-            bot.answer_callback_query(call.id)
-            return
-
-        elif call.data == "adm_cmd_stats":
+        if call.data == "adm_cmd_stats":
             total_users = len(data.get("users", {}))
             total_admins = len(data.get("admins", SUPER_ADMINS))
             stats_text = (
@@ -688,15 +666,7 @@ def handle_all_messages(message):
     if is_admin(user_id) and user_id in user_states:
         state_data = user_states[user_id]
 
-        if isinstance(state_data, dict) and state_data.get("mode") == "ADMIN_EDITING_TEXT":
-            key = state_data["key"]
-            data.setdefault("custom_texts", {})[key] = text
-            save_data(data)
-            user_states.pop(user_id, None)
-            bot.send_message(user_id, f"✅ **Updated `{key}` Successfully!**\nNew Text: {text}", reply_markup=get_bottom_menu_keyboard(user_id), parse_mode="Markdown")
-            return
-
-        elif state_data == "TIMER_SET_TEXT":
+        if state_data == "TIMER_SET_TEXT":
             user_states[user_id] = {"mode": "TIMER_SET_INTERVAL", "text": text}
             bot.send_message(user_id, "⏱️ **Step 2:** How many **Minutes** gap between each message? (e.g. `60` for 1 hour, `120` for 2 hours):", parse_mode="Markdown")
             return
@@ -782,13 +752,11 @@ def handle_all_messages(message):
                     bot.send_message(user_id, f"❌ Failed to send: {e}")
                 return
 
-    # Cancel handling
     if text in ["🚫 Cancel", "❌ Cancel"]:
         user_states.pop(user_id, None)
         bot.send_message(user_id, "❌ Action Cancelled.", reply_markup=get_bottom_menu_keyboard(user_id))
         return
 
-    # Rating Review Submission Handler
     if user_id in user_states and isinstance(user_states[user_id], dict) and user_states[user_id].get("mode") == "WAITING_FEEDBACK_TEXT":
         rating = user_states[user_id]["rating"]
         user_states.pop(user_id, None)
@@ -817,7 +785,7 @@ def handle_all_messages(message):
     if not is_subscribed(user_id):
         bot.send_message(
             user_id,
-            get_text("msg_welcome"),
+            WELCOME_TEXT,
             reply_markup=get_force_join_keyboard(),
             parse_mode="Markdown"
         )
@@ -825,7 +793,6 @@ def handle_all_messages(message):
 
     state = user_states.get(user_id)
 
-    # 1. Consumer Helpline State
     if state == "AWAITING_SUPPORT_MESSAGE":
         msg_length = len(text)
         word_count = len(text.split())
@@ -861,7 +828,6 @@ def handle_all_messages(message):
         )
         return
 
-    # 2. Payment SS State
     if state == "AWAITING_PAYMENT_SS":
         user_states.pop(user_id, None)
         user_card = format_user_card(message.from_user, user_id)
@@ -888,7 +854,6 @@ def handle_all_messages(message):
         )
         return
 
-    # 3. Give Hit Credentials State
     if state == "AWAITING_CREDENTIALS":
         user_states.pop(user_id, None)
         processing_timers[user_id] = time.time()
@@ -908,25 +873,23 @@ def handle_all_messages(message):
         bot.send_message(user_id, "𝙂𝙢𝙖𝙞𝙡 𝙞𝙣 𝙥𝙧𝙤𝙘𝙚𝙨𝙨𝙞𝙣𝙜 𝙥𝙡𝙨 𝙬𝙖𝙞𝙩✋🥺", reply_markup=get_bottom_menu_keyboard(user_id))
         return
 
-    # 4. 20-Minutes Lock Check for Random Messages
     if user_id in processing_timers and not is_admin(user_id):
         if time.time() - processing_timers[user_id] < 1200:
-            if text not in [get_text(k) for k in DEFAULT_TEXTS.keys()] and text not in ["🛠️ Admin Panel", "🚫 Cancel", "❌ Cancel"]:
+            if text not in MENU_BUTTONS:
                 bot.send_message(user_id, "W8 a minute 𝙂𝙢𝙖𝙞𝙡 𝙞𝙣 𝙥𝙧𝙤𝙘𝙚𝙨𝙨𝙞𝙣𝙜 𝙥𝙡𝙨 𝙬𝙖𝙞𝙩✋🥺")
                 return
         else:
             processing_timers.pop(user_id, None)
 
-    # 5. Bottom Menu Action Triggers
     if text == "🛠️ Admin Panel" and is_admin(user_id):
-        bot.send_message(user_id, "🔧 **Administrator Dashboard:**", reply_markup=get_admin_panel_inline(), parse_mode="Markdown")
+        bot.send_message(user_id, "🔧 **You are in the Administrator Dashboard:**", reply_markup=get_admin_panel_inline(), parse_mode="Markdown")
 
-    elif text == get_text("btn_announcement"):
+    elif text == "Join Announcement Channel":
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("📢 Open Announcement Channel", url=ANNOUNCEMENT_CHANNEL_LINK))
         bot.send_message(user_id, "👇 Tap below to join our official Announcement Channel:", reply_markup=markup)
 
-    elif text == get_text("btn_helpline"):
+    elif text == "24x7 consumer helpline":
         user_states[user_id] = "AWAITING_SUPPORT_MESSAGE"
         cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
         cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
@@ -936,19 +899,19 @@ def handle_all_messages(message):
         )
         bot.send_message(user_id, helpline_prompt, reply_markup=cancel_kb)
 
-    elif text == get_text("btn_work"):
+    elif text == "Work with us":
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("💬 @talkwithhimbot", url=WORK_BOT_LINK))
         work_text = "DM us on  We’ll explain the work in detail, and you can earn good money with us. @talkwithhimbot"
         bot.send_message(user_id, work_text, reply_markup=markup)
 
-    elif text == get_text("btn_mail"):
+    elif text == "Mail create":
         user_states[user_id] = "AWAITING_PAYMENT_SS"
         cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
         cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
         
-        caption_text = get_text("msg_mail_header")
-        second_text = get_text("msg_mail_send_ss")
+        caption_text = "per mail 40 inr after payment your mail will be created"
+        second_text = "[📋]\n𝗦𝗘𝗡𝗗  𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗦𝗦 𝗔𝗡𝗗 𝗪𝗜𝗧𝗛 𝗖𝗟𝗘𝗔𝗥 𝗦𝗛𝗢𝗪𝗜𝗡𝗚 𝗧𝗥𝗔𝗡𝗦𝗔𝗖𝗧𝗜𝗢𝗡 𝗜𝗗 𝗔𝗡𝗗 𝗡𝗔𝗠𝗘 😇"
         
         qr_to_send = data.get("qr_file_id")
         if qr_to_send:
@@ -961,12 +924,11 @@ def handle_all_messages(message):
         
         bot.send_message(user_id, f"{caption_text}\n\n{second_text}", reply_markup=cancel_kb)
 
-    elif text == get_text("btn_balance"):
+    elif text == "💰 My Balance":
         user_info = get_user(user_id, message.from_user)
         name = message.from_user.first_name or "User"
         profile_link = f"[{name}](tg://user?id={user_id})"
         username = f"@{message.from_user.username}" if message.from_user.username else "None"
-        admin_tag = "\n👑 **Role:** Administrator (Unlimited Free Testing)" if is_admin(user_id) else ""
         
         balance_card = (
             f"👤 **USER ACCOUNT & BALANCE DETAILS**\n"
@@ -976,13 +938,13 @@ def handle_all_messages(message):
             f"🔗 **Username:** {username}\n"
             f"💵 **Current Balance:** `{user_info.get('balance', 0)} Credits`\n"
             f"👥 **Total Referrals:** `{user_info.get('total_referrals', 0)} Users`\n"
-            f"📅 **Member Since:** `{user_info.get('joined_at', '2026')}`{admin_tag}\n"
+            f"📅 **Member Since:** `{user_info.get('joined_at', '2026')}`\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"👇 **Use Credit Points Menu:**"
         )
         bot.send_message(user_id, balance_card, reply_markup=get_balance_options_keyboard(user_id), parse_mode="Markdown")
 
-    elif text == get_text("btn_referrals"):
+    elif text == "👥 Referrals":
         user_info = get_user(user_id, message.from_user)
         try:
             bot_username = bot.get_me().username
@@ -998,19 +960,21 @@ def handle_all_messages(message):
         except Exception:
             bot.send_message(user_id, "⚠️ Error generating referral link. Please try again later.")
 
-    elif text == get_text("btn_rating"):
+    elif text == "⭐ Rating / Feedback":
         bot.send_message(user_id, "🌟 **How was your experience with us?**\nPlease choose a rating below:", reply_markup=get_rating_keyboard())
 
-    elif text == get_text("btn_help"):
+    elif text == "⚙️ Help":
+        help_markup = types.InlineKeyboardMarkup()
+        help_markup.add(types.InlineKeyboardButton("📢 Official Announcement Channel", url=ANNOUNCEMENT_CHANNEL_LINK))
+        
         help_text = (
             "⚙️ **Help & Information:**\n\n"
             "• **Mail create:** Request fresh and premium Gmail accounts.\n"
             "• **Referrals:** Invite friends to earn free credits.\n"
             "• **24x7 consumer helpline:** Send direct report to support team.\n"
-            "• **Rating / Feedback:** Rate your order experience.\n\n"
-            "Official Updates: @comchater"
+            "• **Rating / Feedback:** Rate your order experience."
         )
-        bot.send_message(user_id, help_text, parse_mode="Markdown")
+        bot.send_message(user_id, help_text, reply_markup=help_markup, parse_mode="Markdown")
 
 if __name__ == "__main__":
     while True:
