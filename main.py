@@ -58,7 +58,7 @@ def load_data():
     default_db = {
         "users": {},
         "admins": SUPER_ADMINS,
-        "groups": [],
+        "groups": {},
         "banned": [],
         "qr_file_id": None,
         "qr_locked": True,
@@ -81,6 +81,8 @@ def load_data():
                 for k, v in default_db.items():
                     if k not in d:
                         d[k] = v
+                if isinstance(d.get("groups"), list):
+                    d["groups"] = {str(gid): f"Group {gid}" for gid in d["groups"]}
                 return d
         except Exception:
             pass
@@ -118,12 +120,17 @@ def auto_scheduler_loop():
             if sched.get("enabled") and sched.get("text"):
                 interval = sched.get("interval_min", 60) * 60
                 time.sleep(interval)
+                
+                # Check again if still enabled after sleep
+                if not data.get("scheduler", {}).get("enabled"):
+                    continue
+                    
                 msg = sched.get("text")
                 target = sched.get("target", "all")
                 
                 targets_list = []
                 if target in ["groups", "all"]:
-                    targets_list.extend(data.get("groups", []))
+                    targets_list.extend([int(gid) for gid in data.get("groups", {}).keys()])
                 if target in ["users", "all"]:
                     targets_list.extend([int(u) for u in data.get("users", {}).keys()])
 
@@ -409,11 +416,10 @@ def on_user_block_or_unblock(message):
 def on_bot_joined_group(message):
     for member in message.new_chat_members:
         if member.id == bot.get_me().id:
-            chat_id = message.chat.id
-            if chat_id not in data.get("groups", []):
-                data.setdefault("groups", []).append(chat_id)
-                save_data(data)
-            bot.send_message(chat_id, "gmailcrtorbot here we are best we are no 1 gmai provider genuine mails try us")
+            chat_id = str(message.chat.id)
+            data.setdefault("groups", {})[chat_id] = message.chat.title or f"Group {chat_id}"
+            save_data(data)
+            bot.send_message(message.chat.id, "gmailcrtorbot here we are best we are no 1 gmai provider genuine mails try us")
 
 @bot.message_handler(commands=['start', 'admin'])
 def start_handler(message):
@@ -637,7 +643,7 @@ def handle_callbacks(call):
                 f"📊 **DETAILED BOT STATISTICS**\n━━━━━━━━━━━━━━━━━━━━\n"
                 f"👥 Total Registered Users: `{total_users}`\n"
                 f"👑 Total Active Admins: `{total_admins}`\n"
-                f"👥 Active Groups Connected: `{len(data.get('groups', []))}`\n"
+                f"👥 Active Groups Connected: `{len(data.get('groups', {}))}`\n"
                 f"🚫 Banned Users Count: `{len(data.get('banned', []))}`\n"
                 f"⭐ Total Reviews Received: `{len(data.get('feedbacks', []))}`\n"
                 f"🔒 QR System Status: `{'LOCKED' if data.get('qr_locked', True) else 'UNLOCKED'}`\n"
@@ -686,6 +692,21 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, f"Notify is now {'ON' if data['settings']['new_user_notify'] else 'OFF'}")
 
         elif call.data == "adm_cmd_auto_timer":
+            is_enabled = data.get("scheduler", {}).get("enabled", False)
+            markup = types.InlineKeyboardMarkup(row_width=1)
+            if is_enabled:
+                markup.add(types.InlineKeyboardButton("🔴 Turn OFF Auto Timer", callback_data="adm_toggle_timer_off"))
+            markup.add(types.InlineKeyboardButton("⚙️ Setup / Update Timer", callback_data="adm_start_timer_setup"))
+            bot.send_message(user_id, f"⏰ **Auto Timer Settings**\nStatus: `{'🟢 ON' if is_enabled else '⚪ OFF'}`\nInterval: `{data.get('scheduler', {}).get('interval_min', 60)} minutes`\nTarget: `{data.get('scheduler', {}).get('target', 'all').upper()}`", reply_markup=markup, parse_mode="Markdown")
+            bot.answer_callback_query(call.id)
+
+        elif call.data == "adm_toggle_timer_off":
+            data.setdefault("scheduler", {})["enabled"] = False
+            save_data(data)
+            bot.send_message(user_id, "🔴 **Auto Timer has been Turned OFF!**", reply_markup=get_bottom_menu_keyboard(user_id))
+            bot.answer_callback_query(call.id, "Timer Disabled")
+
+        elif call.data == "adm_start_timer_setup":
             user_states[user_id] = "TIMER_SET_TEXT"
             cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
             cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
@@ -703,30 +724,69 @@ def handle_callbacks(call):
             user_states[user_id] = "ADMIN_BROADCAST"
             cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
             cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
-            bot.send_message(user_id, "📨 **Send the Broadcast Message or Photo** you want to send to ALL users:", reply_markup=cancel_kb)
+            total_targets = len(data.get("users", {}))
+            bot.send_message(user_id, f"📨 **Send the Broadcast Message or Photo** to send to ALL ({total_targets}) registered users:", reply_markup=cancel_kb)
             bot.answer_callback_query(call.id)
 
         elif call.data == "adm_cmd_manage_admins":
+            markup = types.InlineKeyboardMarkup(row_width=1)
+            markup.add(types.InlineKeyboardButton("📋 Choose Member from List", callback_data="adm_list_members_promote"))
+            markup.add(types.InlineKeyboardButton("✍️ Enter User ID / Username Manually", callback_data="adm_manual_admin_add"))
+            bot.send_message(user_id, "👥 **Manage Admins:** Select an option below:", reply_markup=markup, parse_mode="Markdown")
+            bot.answer_callback_query(call.id)
+
+        elif call.data == "adm_manual_admin_add":
+            user_states[user_id] = "ADMIN_ADD_ADMIN"
+            cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
+            current_admins = ", ".join([f"[`{a}`](tg://user?id={a})" for a in data.get("admins", SUPER_ADMINS)])
+            bot.send_message(user_id, f"👥 **Current Admins:**\n{current_admins}\n\n👉 Send the **UserID or Username**:", reply_markup=cancel_kb, parse_mode="Markdown")
+            bot.answer_callback_query(call.id)
+
+        elif call.data == "adm_list_members_promote":
             users = data.get("users", {})
             if not users:
-                bot.send_message(user_id, "No users in database to manage.")
+                bot.send_message(user_id, "No users in database.")
                 bot.answer_callback_query(call.id)
                 return
             markup = types.InlineKeyboardMarkup(row_width=1)
             for uid, uinfo in list(users.items())[:35]:
                 name = uinfo.get("name", "User")
                 is_adm = int(uid) in data.get("admins", SUPER_ADMINS)
-                status_icon = "👑 Admin"
-                if not is_adm:
-                    status_icon = "👤 Member"
-                markup.add(types.InlineKeyboardButton(f"{name} ({uid}) - {status_icon}", callback_data=f"adm_toggle_promote_{uid}"))
-            bot.send_message(user_id, "👥 **Select a member to Promote or Demote:**", reply_markup=markup, parse_mode="Markdown")
+                status_icon = "👑 Admin" if is_adm else "👤 Member"
+                markup.add(types.InlineKeyboardButton(f"{name} ({uid}) - {status_icon}", callback_data=f"adm_user_detail_{uid}"))
+            bot.send_message(user_id, "👥 **Select Member to Manage:**", reply_markup=markup, parse_mode="Markdown")
             bot.answer_callback_query(call.id)
 
-        elif call.data.startswith("adm_toggle_promote_"):
-            target_uid = int(call.data.split("adm_toggle_promote_")[1])
+        elif call.data.startswith("adm_user_detail_"):
+            target_uid = int(call.data.split("adm_user_detail_")[1])
+            is_adm = target_uid in data.get("admins", SUPER_ADMINS)
+            card = format_user_card_by_id(target_uid)
+            markup = types.InlineKeyboardMarkup(row_width=2)
+            if is_adm:
+                markup.add(types.InlineKeyboardButton("🔴 Demote Admin", callback_data=f"adm_do_demote_{target_uid}"))
+            else:
+                markup.add(types.InlineKeyboardButton("🟢 Promote to Admin", callback_data=f"adm_do_promote_{target_uid}"))
+            markup.add(types.InlineKeyboardButton("🎁 Gift Credits", callback_data=f"adm_gift_to_{target_uid}"))
+            bot.send_message(user_id, f"{card}\n\nStatus: `{'Admin 👑' if is_adm else 'Member 👤'}`", reply_markup=markup, parse_mode="Markdown")
+            bot.answer_callback_query(call.id)
+
+        elif call.data.startswith("adm_do_promote_"):
+            target_uid = int(call.data.split("adm_do_promote_")[1])
+            if target_uid not in data.get("admins", []):
+                data.setdefault("admins", []).append(target_uid)
+                save_data(data)
+                bot.answer_callback_query(call.id, "Promoted successfully ✅")
+                try:
+                    bot.send_message(target_uid, "Congrats now you are the moderator of our bot.")
+                except Exception:
+                    pass
+                bot.send_message(user_id, f"✅ User `{target_uid}` is now an Admin!")
+
+        elif call.data.startswith("adm_do_demote_"):
+            target_uid = int(call.data.split("adm_do_demote_")[1])
             if target_uid in SUPER_ADMINS:
-                bot.answer_callback_query(call.id, "Cannot modify Super Admin!", show_alert=True)
+                bot.answer_callback_query(call.id, "Cannot demote Super Admin!", show_alert=True)
                 return
             if target_uid in data.get("admins", []):
                 data["admins"].remove(target_uid)
@@ -736,17 +796,24 @@ def handle_callbacks(call):
                     bot.send_message(target_uid, "You are demoted from the admin.")
                 except Exception:
                     pass
-            else:
-                data.setdefault("admins", []).append(target_uid)
-                save_data(data)
-                bot.answer_callback_query(call.id, "Promoted successfully ✅")
-                try:
-                    bot.send_message(target_uid, "Congrats now you are the moderator of our bot.")
-                except Exception:
-                    pass
-            return
+                bot.send_message(user_id, f"❌ User `{target_uid}` demoted from Admin.")
+
+        elif call.data.startswith("adm_gift_to_"):
+            target_uid = call.data.split("adm_gift_to_")[1]
+            user_states[user_id] = {"mode": "ADMIN_MANAGE_CREDITS_VAL", "target": target_uid}
+            cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
+            bot.send_message(user_id, f"🎁 **Gift Credits to `{target_uid}`:** Enter amount (e.g. `10` or `+5`):", reply_markup=cancel_kb, parse_mode="Markdown")
+            bot.answer_callback_query(call.id)
 
         elif call.data == "adm_cmd_manage_credits":
+            markup = types.InlineKeyboardMarkup(row_width=1)
+            markup.add(types.InlineKeyboardButton("📋 Choose User from List", callback_data="adm_list_members_promote"))
+            markup.add(types.InlineKeyboardButton("✍️ Search User ID / Username", callback_data="adm_search_user_credit"))
+            bot.send_message(user_id, "💰 **Manage User Credits:**", reply_markup=markup, parse_mode="Markdown")
+            bot.answer_callback_query(call.id)
+
+        elif call.data == "adm_search_user_credit":
             user_states[user_id] = "ADMIN_MANAGE_CREDITS_ID"
             cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
             cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
@@ -813,10 +880,15 @@ def handle_all_messages(message):
     text = message.text or ""
 
     if message.chat.type in ['group', 'supergroup']:
-        if chat_id not in data.get("groups", []):
-            data.setdefault("groups", []).append(chat_id)
+        gid_str = str(chat_id)
+        if gid_str not in data.get("groups", {}):
+            data.setdefault("groups", {})[gid_str] = message.chat.title or f"Group {gid_str}"
             save_data(data)
+        get_user(user_id, message.from_user)
         return
+
+    # Auto-register and update user
+    get_user(user_id, message.from_user)
 
     # Auto-delete older user action messages if exceeding limit (Keep chat clean)
     user_last_messages.setdefault(user_id, [])
