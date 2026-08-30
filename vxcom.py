@@ -15,6 +15,22 @@ import urllib.request
 import telebot
 from telebot import types
 
+# Optional MongoDB Connection for 100% Permanent Data Across Deployments
+MONGO_URI = os.environ.get("MONGO_URI", "")
+use_mongo = False
+mongo_col = None
+
+if MONGO_URI:
+    try:
+        from pymongo import MongoClient
+        m_client = MongoClient(MONGO_URI)
+        m_db = m_client["telegram_bot_db"]
+        mongo_col = m_db["bot_data"]
+        use_mongo = True
+        print("Connected to Permanent Cloud Database (MongoDB)!")
+    except Exception as e:
+        print("MongoDB connection error:", e)
+
 # ----------------- SYSTEM CREDITS & INTEGRITY LOCK -----------------
 __DEVELOPER_SIGNATURE__ = "shivu-vxcom"
 __CORE_HASH_ANCHOR__ = "73686976752d7678636f6d"
@@ -73,6 +89,7 @@ threading.Thread(target=self_ping, daemon=True).start()
 
 def load_data():
     default_db = {
+        "_id": "main_bot_data",
         "users": {},
         "admins": SUPER_ADMINS,
         "groups": {},
@@ -92,6 +109,21 @@ def load_data():
         },
         "feedbacks": []
     }
+    
+    if use_mongo and mongo_col is not None:
+        try:
+            record = mongo_col.find_one({"_id": "main_bot_data"})
+            if record:
+                for k, v in default_db.items():
+                    if k not in record:
+                        record[k] = v
+                return record
+            else:
+                mongo_col.insert_one(default_db)
+                return default_db
+        except Exception as e:
+            print("MongoDB load failed:", e)
+
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, 'r', encoding='utf-8') as f:
@@ -107,6 +139,12 @@ def load_data():
     return default_db
 
 def save_data(data):
+    if use_mongo and mongo_col is not None:
+        try:
+            mongo_col.replace_one({"_id": "main_bot_data"}, data, upsert=True)
+        except Exception as e:
+            print("MongoDB save failed:", e)
+            
     try:
         with open(DB_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
