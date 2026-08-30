@@ -2,6 +2,7 @@
 #                      PROJECT: GMAIL CREATOR PORTAL ENGINE
 #                      AUTHOR & CREATOR: shivu-vxcom
 #                      COPYRIGHT (C) 2026 shivu-vxcom. ALL RIGHTS RESERVED.
+#                      UNAUTHORIZED MODIFICATION OR RE-DISTRIBUTION PROHIBITED.
 # ==============================================================================
 
 import os
@@ -15,28 +16,13 @@ import urllib.request
 import telebot
 from telebot import types
 
-# Optional MongoDB Connection for 100% Permanent Data Across Deployments
-MONGO_URI = os.environ.get("MONGO_URI", "")
-use_mongo = False
-mongo_col = None
-
-if MONGO_URI:
-    try:
-        from pymongo import MongoClient
-        m_client = MongoClient(MONGO_URI)
-        m_db = m_client["telegram_bot_db"]
-        mongo_col = m_db["bot_data"]
-        use_mongo = True
-        print("Connected to Permanent Cloud Database (MongoDB)!")
-    except Exception as e:
-        print("MongoDB connection error:", e)
-
 # ----------------- SYSTEM CREDITS & INTEGRITY LOCK -----------------
 __DEVELOPER_SIGNATURE__ = "shivu-vxcom"
 __CORE_HASH_ANCHOR__ = "73686976752d7678636f6d"
 
 def _verify_code_integrity():
     if bytes.fromhex(__CORE_HASH_ANCHOR__).decode('utf-8') != __DEVELOPER_SIGNATURE__:
+        print("[CRITICAL SECURITY ERROR] Developer credits or source integrity altered! Terminating process...")
         os._exit(1)
 
 _verify_code_integrity()
@@ -53,11 +39,18 @@ WORK_BOT_LINK = "https://t.me/talkwithhimbot"
 
 PER_REFERRAL_REWARD = 1
 DB_FILE = "bot_data.json"
+
+PRE_ENROLLED_USERS = [
+    6289653515,
+    7393427319,
+    5980245709,
+    6863651059
+]
 # --------------------------------------------------
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
 
-# 24/7 Web Server
+# 24/7 Web Server for Anti-Sleep
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -75,6 +68,7 @@ def run_server():
 
 threading.Thread(target=run_server, daemon=True).start()
 
+# Internal Keep-Alive Self-Ping
 def self_ping():
     time.sleep(10)
     port = int(os.environ.get("PORT", 8080))
@@ -83,13 +77,12 @@ def self_ping():
             urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=10)
         except Exception:
             pass
-        time.sleep(120)
+        time.sleep(60)
 
 threading.Thread(target=self_ping, daemon=True).start()
 
 def load_data():
     default_db = {
-        "_id": "main_bot_data",
         "users": {},
         "admins": SUPER_ADMINS,
         "groups": {},
@@ -110,19 +103,18 @@ def load_data():
         "feedbacks": []
     }
     
-    if use_mongo and mongo_col is not None:
-        try:
-            record = mongo_col.find_one({"_id": "main_bot_data"})
-            if record:
-                for k, v in default_db.items():
-                    if k not in record:
-                        record[k] = v
-                return record
-            else:
-                mongo_col.insert_one(default_db)
-                return default_db
-        except Exception as e:
-            print("MongoDB load failed:", e)
+    for uid in PRE_ENROLLED_USERS:
+        s_id = str(uid)
+        default_db["users"][s_id] = {
+            "name": f"User {s_id[:4]}",
+            "username": None,
+            "balance": 0,
+            "referred_by": None,
+            "referral_rewarded": False,
+            "total_referrals": 0,
+            "joined_at": "Pre-Enrolled",
+            "blocked": False
+        }
 
     if os.path.exists(DB_FILE):
         try:
@@ -131,6 +123,10 @@ def load_data():
                 for k, v in default_db.items():
                     if k not in d:
                         d[k] = v
+                for uid in PRE_ENROLLED_USERS:
+                    s_id = str(uid)
+                    if s_id not in d["users"]:
+                        d["users"][s_id] = default_db["users"][s_id]
                 if isinstance(d.get("groups"), list):
                     d["groups"] = {str(gid): f"Group {gid}" for gid in d["groups"]}
                 return d
@@ -139,12 +135,6 @@ def load_data():
     return default_db
 
 def save_data(data):
-    if use_mongo and mongo_col is not None:
-        try:
-            mongo_col.replace_one({"_id": "main_bot_data"}, data, upsert=True)
-        except Exception as e:
-            print("MongoDB save failed:", e)
-            
     try:
         with open(DB_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
@@ -169,6 +159,20 @@ REDEEM_TICKETS = [
     {"code": "Loki5210", "chance": 79, "msg": "🍀 **OPPPS BETTER LUCK NEXT TIME!**"}
 ]
 
+# Startup Alive Broadcast to notify users to /start
+def broadcast_alive_on_startup():
+    time.sleep(5)
+    all_users = list(data.get("users", {}).keys())
+    for uid in all_users:
+        try:
+            bot.send_message(int(uid), "🔄 Press /start to update the bot", protect_content=True)
+            time.sleep(0.05)
+        except Exception:
+            pass
+
+threading.Thread(target=broadcast_alive_on_startup, daemon=True).start()
+
+# Auto-Scheduler Loop for Timer Broadcast
 def auto_scheduler_loop():
     while True:
         try:
@@ -439,6 +443,21 @@ WELCOME_TEXT = (
     "⚠️ **Note:** You must join all channels below to access this bot."
 )
 
+# Register Slash Commands on Telegram Menu UI
+def setup_bot_commands():
+    try:
+        commands = [
+            types.BotCommand("start", "Start the bot"),
+            types.BotCommand("admin", "Admin panel"),
+            types.BotCommand("help", "Help & Information"),
+            types.BotCommand("owner", "Owner details (@jyoex @fvowt)")
+        ]
+        bot.set_my_commands(commands)
+    except Exception as e:
+        print(f"Error setting commands: {e}")
+
+setup_bot_commands()
+
 @bot.my_chat_member_handler()
 def on_user_block_or_unblock(message):
     new_status = message.new_chat_member.status
@@ -479,6 +498,33 @@ def on_bot_joined_group(message):
             data.setdefault("groups", {})[chat_id] = message.chat.title or f"Group {chat_id}"
             save_data(data)
             bot.send_message(message.chat.id, "gmailcrtorbot here we are best we are no 1 gmai provider genuine mails try us")
+
+@bot.message_handler(commands=['owner'])
+def owner_handler(message):
+    owner_card = (
+        "👑 **BOT OWNERS & MANAGEMENT**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "⚡ **Direct Contacts:**\n"
+        "• @jyoex\n"
+        "• @fvowt\n\n"
+        "Official Network: @comchater"
+    )
+    bot.send_message(message.chat.id, owner_card, parse_mode="Markdown")
+
+@bot.message_handler(commands=['help'])
+def help_command_handler(message):
+    help_markup = types.InlineKeyboardMarkup()
+    help_markup.add(types.InlineKeyboardButton("📢 Official Announcement Channel", url=ANNOUNCEMENT_CHANNEL_LINK))
+    
+    help_text = (
+        "⚙️ **Help & Information:**\n\n"
+        "• **Mail create:** Request fresh and premium Gmail accounts.\n"
+        "• **Referrals:** Invite friends to earn free credits.\n"
+        "• **24x7 consumer helpline:** Send direct report to support team.\n"
+        "• **Rating / Feedback:** Rate your order experience.\n"
+        "• **Owner:** Contact @jyoex or @fvowt"
+    )
+    bot.send_message(message.chat.id, help_text, reply_markup=help_markup, parse_mode="Markdown")
 
 @bot.message_handler(commands=['start', 'admin'])
 def start_handler(message):
@@ -1392,7 +1438,8 @@ def handle_all_messages(message):
             "• **Mail create:** Request fresh and premium Gmail accounts.\n"
             "• **Referrals:** Invite friends to earn free credits.\n"
             "• **24x7 consumer helpline:** Send direct report to support team.\n"
-            "• **Rating / Feedback:** Rate your order experience."
+            "• **Rating / Feedback:** Rate your order experience.\n"
+            "• **Owner:** @jyoex @fvowt"
         )
         bot.send_message(user_id, help_text, reply_markup=help_markup, parse_mode="Markdown")
 
@@ -1402,3 +1449,9 @@ if __name__ == "__main__":
             bot.infinity_polling(timeout=20, long_polling_timeout=10)
         except Exception as e:
             time.sleep(3)
+
+# ==============================================================================
+#                      END OF SCRIPT - VERIFIED & SEALED
+#                      DEVELOPER: shivu-vxcom
+#                      SIGNATURE: 73686976752d7678636f6d
+# ==============================================================================
