@@ -98,7 +98,7 @@ def load_data():
             "text": "gmailcrtorbot here we are best we are no 1 gmai provider genuine mails try us",
             "interval_min": 60,
             "target": "all",
-            "specific_group": None
+            "specific_target": None
         },
         "feedbacks": []
     }
@@ -186,23 +186,26 @@ def auto_scheduler_loop():
                     
                 msg = sched.get("text")
                 target = sched.get("target", "all")
-                specific_group = sched.get("specific_group")
+                specific_target = sched.get("specific_target")
                 
-                targets_list = []
-                if specific_group:
-                    targets_list.append(int(specific_group))
+                if specific_target:
+                    try:
+                        bot.send_message(specific_target, msg)
+                    except Exception:
+                        pass
                 else:
+                    targets_list = []
                     if target in ["groups", "all"]:
                         targets_list.extend([int(gid) for gid in data.get("groups", {}).keys()])
                     if target in ["users", "all"]:
                         targets_list.extend([int(u) for u in data.get("users", {}).keys()])
 
-                for chat_id in set(targets_list):
-                    try:
-                        bot.send_message(chat_id, msg)
-                        time.sleep(0.05)
-                    except Exception:
-                        pass
+                    for chat_id in set(targets_list):
+                        try:
+                            bot.send_message(chat_id, msg)
+                            time.sleep(0.05)
+                        except Exception:
+                            pass
             else:
                 time.sleep(10)
         except Exception:
@@ -443,14 +446,15 @@ WELCOME_TEXT = (
     "⚠️ **Note:** You must join all channels below to access this bot."
 )
 
-# Register Slash Commands on Telegram Menu UI
+# Custom Telegram Slash Commands Configuration
 def setup_bot_commands():
     try:
         commands = [
             types.BotCommand("start", "Start the bot"),
+            types.BotCommand("alive", "check bot alive?"),
             types.BotCommand("admin", "Admin panel"),
             types.BotCommand("help", "Help & Information"),
-            types.BotCommand("owner", "Owner details (@jyoex @fvowt)")
+            types.BotCommand("owner", "@jyoex @fvowt")
         ]
         bot.set_my_commands(commands)
     except Exception as e:
@@ -498,6 +502,10 @@ def on_bot_joined_group(message):
             data.setdefault("groups", {})[chat_id] = message.chat.title or f"Group {chat_id}"
             save_data(data)
             bot.send_message(message.chat.id, "gmailcrtorbot here we are best we are no 1 gmai provider genuine mails try us")
+
+@bot.message_handler(commands=['alive'])
+def alive_handler(message):
+    bot.send_message(message.chat.id, "your bot is alive /click start to use")
 
 @bot.message_handler(commands=['owner'])
 def owner_handler(message):
@@ -818,12 +826,19 @@ def handle_callbacks(call):
 
         elif call.data.startswith("set_timer_target_"):
             target_type = call.data.split("set_timer_target_")[1]
-            user_states.pop(user_id, None)
             
+            if target_type == "custom_input":
+                user_states[user_id] = "TIMER_SET_CUSTOM_TARGET"
+                cancel_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                cancel_kb.add(types.KeyboardButton("🚫 Cancel"))
+                bot.send_message(user_id, "✍️ Send the Channel / Group **@username** or **Chat ID** (e.g. `@comchater` or `-100123456789`):", reply_markup=cancel_kb)
+                bot.answer_callback_query(call.id)
+                return
+
             if target_type == "specific_group":
                 groups = data.get("groups", {})
                 if not groups:
-                    bot.send_message(user_id, "❌ Bot is not in any group yet! Add bot to group as admin first.", reply_markup=get_bottom_menu_keyboard(user_id))
+                    bot.send_message(user_id, "❌ Bot is not in any group yet! Use Custom Target or add bot to a group.", reply_markup=get_bottom_menu_keyboard(user_id))
                     bot.answer_callback_query(call.id)
                     return
                 
@@ -834,8 +849,9 @@ def handle_callbacks(call):
                 bot.answer_callback_query(call.id)
                 return
                 
+            user_states.pop(user_id, None)
             data.setdefault("scheduler", {})["target"] = target_type
-            data["scheduler"]["specific_group"] = None
+            data["scheduler"]["specific_target"] = None
             save_data(data)
             bot.send_message(user_id, f"✅ Target set to `{target_type.upper()}`! Auto-timer is broadcasting.", reply_markup=get_bottom_menu_keyboard(user_id))
             bot.answer_callback_query(call.id)
@@ -845,7 +861,7 @@ def handle_callbacks(call):
             gtitle = data.get("groups", {}).get(gid, gid)
             user_states.pop(user_id, None)
             data.setdefault("scheduler", {})["target"] = "specific"
-            data["scheduler"]["specific_group"] = gid
+            data["scheduler"]["specific_target"] = gid
             save_data(data)
             bot.send_message(user_id, f"✅ **Target Group Set:** `{gtitle}`\nAuto-timer is now active for this group!", reply_markup=get_bottom_menu_keyboard(user_id), parse_mode="Markdown")
             bot.answer_callback_query(call.id)
@@ -1044,7 +1060,16 @@ def handle_all_messages(message):
     if is_admin(user_id) and user_id in user_states:
         state_data = user_states[user_id]
 
-        if state_data == "ADMIN_MANAGE_CREDITS_ID":
+        if state_data == "TIMER_SET_CUSTOM_TARGET":
+            user_states.pop(user_id, None)
+            target_val = text.strip()
+            data.setdefault("scheduler", {})["target"] = "specific"
+            data["scheduler"]["specific_target"] = target_val
+            save_data(data)
+            bot.send_message(user_id, f"✅ **Auto Timer Set!**\nTarget: `{target_val}`\nInterval: `{data['scheduler']['interval_min']} mins`", reply_markup=get_bottom_menu_keyboard(user_id), parse_mode="Markdown")
+            return
+
+        elif state_data == "ADMIN_MANAGE_CREDITS_ID":
             found_key = find_user_key(text)
             if found_key:
                 user_states[user_id] = {"mode": "ADMIN_MANAGE_CREDITS_VAL", "target": found_key}
@@ -1103,8 +1128,9 @@ def handle_all_messages(message):
                 markup.add(
                     types.InlineKeyboardButton("🌐 All", callback_data="set_timer_target_all"),
                     types.InlineKeyboardButton("👤 Users Only", callback_data="set_timer_target_users"),
-                    types.InlineKeyboardButton("👥 All Groups", callback_data="set_timer_target_groups"),
-                    types.InlineKeyboardButton("🎯 Choose Specific Group", callback_data="set_timer_target_specific_group")
+                    types.InlineKeyboardButton("👥 Groups Only", callback_data="set_timer_target_groups"),
+                    types.InlineKeyboardButton("🎯 Choose Group", callback_data="set_timer_target_specific_group"),
+                    types.InlineKeyboardButton("✍️ Custom @Channel / Group", callback_data="set_timer_target_custom_input")
                 )
                 bot.send_message(user_id, f"✅ **Auto Timer Activated!**\n⏱ Interval: Every `{parsed_mins}` minutes\n📝 Text:\n{msg_text}\n\n👇 **Select Broadcast Target:**", reply_markup=markup, parse_mode="Markdown")
             else:
