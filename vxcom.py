@@ -2,7 +2,6 @@
 #                      PROJECT: GMAIL CREATOR PORTAL ENGINE
 #                      AUTHOR & CREATOR: shivu-vxcom
 #                      COPYRIGHT (C) 2026 shivu-vxcom. ALL RIGHTS RESERVED.
-#                      UNAUTHORIZED MODIFICATION OR RE-DISTRIBUTION PROHIBITED.
 # ==============================================================================
 
 import os
@@ -18,11 +17,10 @@ from telebot import types
 
 # ----------------- SYSTEM CREDITS & INTEGRITY LOCK -----------------
 __DEVELOPER_SIGNATURE__ = "shivu-vxcom"
-__CORE_HASH_ANCHOR__ = "73686976752d7678636f6d"  # Hex verification for shivu-vxcom
+__CORE_HASH_ANCHOR__ = "73686976752d7678636f6d"
 
 def _verify_code_integrity():
     if bytes.fromhex(__CORE_HASH_ANCHOR__).decode('utf-8') != __DEVELOPER_SIGNATURE__:
-        print("[CRITICAL SECURITY ERROR] Developer credits or source integrity altered! Terminating process...")
         os._exit(1)
 
 _verify_code_integrity()
@@ -89,7 +87,8 @@ def load_data():
             "enabled": False,
             "text": "gmailcrtorbot here we are best we are no 1 gmai provider genuine mails try us",
             "interval_min": 60,
-            "target": "all"
+            "target": "all",
+            "specific_group": None
         },
         "feedbacks": []
     }
@@ -145,12 +144,16 @@ def auto_scheduler_loop():
                     
                 msg = sched.get("text")
                 target = sched.get("target", "all")
+                specific_group = sched.get("specific_group")
                 
                 targets_list = []
-                if target in ["groups", "all"]:
-                    targets_list.extend([int(gid) for gid in data.get("groups", {}).keys()])
-                if target in ["users", "all"]:
-                    targets_list.extend([int(u) for u in data.get("users", {}).keys()])
+                if specific_group:
+                    targets_list.append(int(specific_group))
+                else:
+                    if target in ["groups", "all"]:
+                        targets_list.extend([int(gid) for gid in data.get("groups", {}).keys()])
+                    if target in ["users", "all"]:
+                        targets_list.extend([int(u) for u in data.get("users", {}).keys()])
 
                 for chat_id in set(targets_list):
                     try:
@@ -731,9 +734,36 @@ def handle_callbacks(call):
 
         elif call.data.startswith("set_timer_target_"):
             target_type = call.data.split("set_timer_target_")[1]
+            user_states.pop(user_id, None)
+            
+            if target_type == "specific_group":
+                groups = data.get("groups", {})
+                if not groups:
+                    bot.send_message(user_id, "❌ Bot is not in any group yet! Add bot to group as admin first.", reply_markup=get_bottom_menu_keyboard(user_id))
+                    bot.answer_callback_query(call.id)
+                    return
+                
+                markup = types.InlineKeyboardMarkup(row_width=1)
+                for gid, gtitle in groups.items():
+                    markup.add(types.InlineKeyboardButton(f"👥 {gtitle}", callback_data=f"set_single_group_{gid}"))
+                bot.send_message(user_id, "👇 **Choose the Group to broadcast:**", reply_markup=markup)
+                bot.answer_callback_query(call.id)
+                return
+                
             data.setdefault("scheduler", {})["target"] = target_type
+            data["scheduler"]["specific_group"] = None
             save_data(data)
-            bot.send_message(user_id, f"✅ Target set to `{target_type.upper()}`! Auto-timer is broadcasting.")
+            bot.send_message(user_id, f"✅ Target set to `{target_type.upper()}`! Auto-timer is broadcasting.", reply_markup=get_bottom_menu_keyboard(user_id))
+            bot.answer_callback_query(call.id)
+
+        elif call.data.startswith("set_single_group_"):
+            gid = call.data.split("set_single_group_")[1]
+            gtitle = data.get("groups", {}).get(gid, gid)
+            user_states.pop(user_id, None)
+            data.setdefault("scheduler", {})["target"] = "specific"
+            data["scheduler"]["specific_group"] = gid
+            save_data(data)
+            bot.send_message(user_id, f"✅ **Target Group Set:** `{gtitle}`\nAuto-timer is now active for this group!", reply_markup=get_bottom_menu_keyboard(user_id), parse_mode="Markdown")
             bot.answer_callback_query(call.id)
 
         elif call.data == "adm_cmd_mail":
@@ -984,13 +1014,13 @@ def handle_all_messages(message):
                 data["scheduler"]["text"] = msg_text
                 data["scheduler"]["enabled"] = True
                 save_data(data)
-                user_states.pop(user_id, None)
                 
-                markup = types.InlineKeyboardMarkup()
+                markup = types.InlineKeyboardMarkup(row_width=2)
                 markup.add(
                     types.InlineKeyboardButton("🌐 All", callback_data="set_timer_target_all"),
-                    types.InlineKeyboardButton("👥 Groups Only", callback_data="set_timer_target_groups"),
-                    types.InlineKeyboardButton("👤 Users Only", callback_data="set_timer_target_users")
+                    types.InlineKeyboardButton("👤 Users Only", callback_data="set_timer_target_users"),
+                    types.InlineKeyboardButton("👥 All Groups", callback_data="set_timer_target_groups"),
+                    types.InlineKeyboardButton("🎯 Choose Specific Group", callback_data="set_timer_target_specific_group")
                 )
                 bot.send_message(user_id, f"✅ **Auto Timer Activated!**\n⏱ Interval: Every `{parsed_mins}` minutes\n📝 Text:\n{msg_text}\n\n👇 **Select Broadcast Target:**", reply_markup=markup, parse_mode="Markdown")
             else:
@@ -1064,6 +1094,7 @@ def handle_all_messages(message):
                     bot.send_message(user_id, f"❌ Failed to send: {e}")
                 return
 
+    # Feedback Handler
     if user_id in user_states and isinstance(user_states[user_id], dict) and user_states[user_id].get("mode") == "WAITING_FEEDBACK_TEXT":
         rating = user_states[user_id]["rating"]
         user_states.pop(user_id, None)
@@ -1089,6 +1120,7 @@ def handle_all_messages(message):
         bot.send_message(user_id, "❤️ **Thank you for your valuable feedback!**", reply_markup=get_bottom_menu_keyboard(user_id), parse_mode="Markdown")
         return
 
+    # Direct Reply To Admin (No length restrictions)
     if user_id in user_states and user_states[user_id] == "AWAITING_ADMIN_REPLY_INPUT":
         user_states.pop(user_id, None)
         user_card = format_user_card(message.from_user, user_id)
