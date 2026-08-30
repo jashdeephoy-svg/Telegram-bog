@@ -12,7 +12,6 @@ import json
 import random
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import urllib.request
 import telebot
 from telebot import types
 
@@ -48,9 +47,9 @@ PRE_ENROLLED_USERS = [
 ]
 # --------------------------------------------------
 
-bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None, threaded=True, num_threads=8)
 
-# 24/7 Web Server for Anti-Sleep
+# 24/7 Web Server for External Keep-Alive Pings
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -62,24 +61,14 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         return
 
 def run_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    server.serve_forever()
+    try:
+        port = int(os.environ.get("PORT", 8080))
+        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+        server.serve_forever()
+    except Exception as e:
+        print(f"Web server error: {e}")
 
 threading.Thread(target=run_server, daemon=True).start()
-
-# Internal Keep-Alive Self-Ping
-def self_ping():
-    time.sleep(10)
-    port = int(os.environ.get("PORT", 8080))
-    while True:
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=10)
-        except Exception:
-            pass
-        time.sleep(60)
-
-threading.Thread(target=self_ping, daemon=True).start()
 
 def load_data():
     default_db = {
@@ -159,7 +148,7 @@ REDEEM_TICKETS = [
     {"code": "Loki5210", "chance": 79, "msg": "🍀 **OPPPS BETTER LUCK NEXT TIME!**"}
 ]
 
-# Startup Alive Broadcast to notify users to /start
+# Startup Alive Broadcast
 def broadcast_alive_on_startup():
     time.sleep(5)
     all_users = list(data.get("users", {}).keys())
@@ -172,7 +161,7 @@ def broadcast_alive_on_startup():
 
 threading.Thread(target=broadcast_alive_on_startup, daemon=True).start()
 
-# Auto-Scheduler Loop for Timer Broadcast
+# Auto-Scheduler Loop
 def auto_scheduler_loop():
     while True:
         try:
@@ -446,7 +435,6 @@ WELCOME_TEXT = (
     "⚠️ **Note:** You must join all channels below to access this bot."
 )
 
-# Custom Telegram Slash Commands Configuration
 def setup_bot_commands():
     try:
         commands = [
@@ -745,7 +733,7 @@ def handle_callbacks(call):
         bot.send_message(user_id, "✍️ Type your reply for the admin:", reply_markup=cancel_kb)
         return
 
-    # Admin Control Handlers
+    # Admin Controls
     if is_admin(user_id):
         if call.data == "adm_cmd_stats":
             total_users = len(data.get("users", {}))
@@ -1230,7 +1218,7 @@ def handle_all_messages(message):
         bot.send_message(user_id, "❤️ **Thank you for your valuable feedback!**", reply_markup=get_bottom_menu_keyboard(user_id), parse_mode="Markdown")
         return
 
-    # Direct Reply To Admin (No length restrictions)
+    # Direct Reply To Admin
     if user_id in user_states and user_states[user_id] == "AWAITING_ADMIN_REPLY_INPUT":
         user_states.pop(user_id, None)
         user_card = format_user_card(message.from_user, user_id)
@@ -1469,12 +1457,17 @@ def handle_all_messages(message):
         )
         bot.send_message(user_id, help_text, reply_markup=help_markup, parse_mode="Markdown")
 
-if __name__ == "__main__":
+# Auto-Recover Polling Runner
+def run_bot_polling():
     while True:
         try:
-            bot.infinity_polling(timeout=20, long_polling_timeout=10)
+            bot.infinity_polling(timeout=20, long_polling_timeout=15, skip_pending=True)
         except Exception as e:
+            print(f"[POLLING RECOVER] Connection dropped: {e}. Reconnecting in 3 seconds...")
             time.sleep(3)
+
+if __name__ == "__main__":
+    run_bot_polling()
 
 # ==============================================================================
 #                      END OF SCRIPT - VERIFIED & SEALED
